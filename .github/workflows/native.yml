@@ -296,13 +296,53 @@ jobs:
           name: sdist
           path: dist/*.tar.gz
 
+  bundle:
+    name: Release bundle is complete
+    # The completeness check below is the release job's precondition, but it
+    # runs here, on every push, rather than only on a tag. A gate that fires
+    # for the first time during a release is a gate nobody has ever seen pass:
+    # its first run would be the one that matters, and a typo in it would
+    # surface as a failed release rather than a failed commit.
+    needs: [wheels, sdist]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Collect the distributions
+        run: |
+          mkdir -p dist
+          find artifacts -name '*.whl' -exec cp {} dist/ \;
+          find artifacts -name '*.tar.gz' -exec cp {} dist/ \;
+          ls -la dist/
+
+      - name: The completeness check must be able to fail
+        # Runs the gate against a directory it should reject, before trusting
+        # the run where it accepts. Otherwise "the gate passed" has the two
+        # usual explanations, and only one of them is that the bundle is
+        # complete -- the other is that the gate cannot say no any more.
+        run: |
+          mkdir -p /tmp/empty-dist
+          if tools/check_dist.sh /tmp/empty-dist; then
+            echo "::error::check_dist.sh accepted an empty directory"
+            exit 1
+          fi
+          echo "the gate rejects an incomplete bundle, as it must"
+
+      - name: Every platform must be represented
+        run: tools/check_dist.sh dist
+
   release:
     name: Release
     # Publishes the artefacts the jobs above built and tested, rather than a
     # fresh build made on this runner. A release job that rebuilds is
     # publishing something no test ever ran against.
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
-    needs: [cmake, sanitizer, fuzz, static, wasm, wheels, sdist]
+    needs: [cmake, sanitizer, fuzz, static, wasm, wheels, sdist, bundle]
     runs-on: ubuntu-latest
     timeout-minutes: 20
     environment:
@@ -322,19 +362,6 @@ jobs:
           find artifacts -name '*.whl' -exec cp {} dist/ \;
           find artifacts -name '*.tar.gz' -exec cp {} dist/ \;
           ls -la dist/
-
-      - name: Every platform must be represented
-        # A partial upload is worse than none: PyPI keeps what it is given,
-        # and a release missing its macOS wheel sends every Mac user to a
-        # source build they may not be able to run.
-        run: |
-          for tag in manylinux_2_17_x86_64 manylinux_2_17_aarch64 macosx win_amd64; do
-            if ! ls dist/*"$tag"*.whl > /dev/null 2>&1; then
-              echo "::error::no wheel matching $tag; refusing to publish a partial release"
-              exit 1
-            fi
-          done
-          ls dist/*.tar.gz > /dev/null
 
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1

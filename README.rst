@@ -29,10 +29,18 @@ Installation
 
    pip install pyvista-frd-reader
 
-Wheels are published for Linux, macOS and Windows. They contain a compiled
-library and no CPython extension module, so one wheel per platform serves every
-supported interpreter. Installing from source needs CMake and a C++17 compiler:
-there is no pure-Python fallback, because a reader that silently falls back is
+Wheels are published for Linux (x86_64 and aarch64), macOS (Intel and Apple
+silicon) and Windows. They contain a compiled library and no CPython extension
+module, so one wheel per platform serves every supported interpreter.
+
+The Linux wheels are ``manylinux_2_28``, meaning glibc 2.28 or newer -- RHEL 8,
+Debian 10, Ubuntu 20.04 and later. That floor comes from NumPy and VTK, not
+from this package: the core needs only C++17, but a wheel tagged for an older
+glibc than its own dependencies can be installed on would promise something
+that does not work.
+
+Installing from source needs CMake and a C++17 compiler: there is no
+pure-Python fallback, because a reader that silently falls back is
 indistinguishable from one that works until someone measures it.
 
 What it reads
