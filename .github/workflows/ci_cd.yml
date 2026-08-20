@@ -35,23 +35,35 @@ jobs:
       - uses: pre-commit/action@v3.0.1
 
   unit_testing:
-    name: Conformance (py${{ matrix.python-version }}, vtk ${{ matrix.vtk-version }})
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
+    name: Conformance (${{ matrix.os }}, py${{ matrix.python-version }}, vtk ${{ matrix.vtk-version }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.10", "3.13"]
+        # Three platforms, because the ctypes binding declares the C structs
+        # by hand and nothing about that is checked by a compiler. A field in
+        # the wrong order or an int where an int64 belongs produces plausible
+        # garbage, and only on the platform whose alignment rules differ from
+        # the one the binding was written on. Linux alone cannot see it.
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        python-version: ["3.13"]
         vtk-version: ["latest"]
         include:
           # VTK changed its linear-wedge node order at 9.7, and this reader
           # picks its PE6 permutation from the installed version. Both sides
           # of that boundary have to be exercised, or the branch that is not
-          # this runner's default is never run at all.
-          - vtk-version: "9.3.1"
+          # this runner's default never runs at all.
+          - os: ubuntu-latest
+            vtk-version: "9.3.1"
             python-version: "3.11"
-          - vtk-version: "9.6.2"
+          - os: ubuntu-latest
+            vtk-version: "9.6.2"
             python-version: "3.12"
+          # The oldest interpreter the package claims to support.
+          - os: ubuntu-latest
+            vtk-version: "latest"
+            python-version: "3.10"
 
     steps:
       - uses: actions/checkout@v4
@@ -77,6 +89,7 @@ jobs:
         # Printed because the matrix says what was *asked for*. A resolver
         # that quietly gave this runner a different VTK would otherwise make
         # the wedge-order coverage above a claim rather than a fact.
+        shell: bash
         run: |
           python -c "
           import pyvista as pv, pyvista_frd

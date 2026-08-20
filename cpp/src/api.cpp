@@ -92,6 +92,15 @@ uint32_t pvfrd_abi_version(void) {
   return PVFRD_ABI_VERSION;
 }
 
+uint32_t pvfrd_struct_size(int which) {
+  switch (which) {
+    case PVFRD_STRUCT_OPEN_OPTIONS: return static_cast<uint32_t>(sizeof(pvfrd_open_options));
+    case PVFRD_STRUCT_ARRAY_INFO: return static_cast<uint32_t>(sizeof(pvfrd_array_info));
+    case PVFRD_STRUCT_DIAGNOSTIC: return static_cast<uint32_t>(sizeof(pvfrd_diagnostic));
+    default: return 0;
+  }
+}
+
 const char *pvfrd_status_message(int status) {
   switch (status) {
     case PVFRD_OK: return "ok";

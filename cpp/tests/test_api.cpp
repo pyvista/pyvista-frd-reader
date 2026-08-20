@@ -8,6 +8,7 @@
 
 #include <gtest/gtest.h>
 
+#include <cstddef>
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
@@ -379,4 +380,35 @@ TEST(ApiTest, PathsAreUtf8OnEveryPlatform) {
   pvfrd_close(opened);
 
   std::filesystem::remove_all(directory, error);
+}
+
+TEST(ApiTest, StructSizesAreReportedForEveryStructThatCrossesTheBoundary) {
+  /* Reported so a handwritten binding can check itself. The values are not
+   * pinned to constants here on purpose: they legitimately differ between
+   * 32- and 64-bit builds, and a constant would only record what one platform
+   * happened to produce. What must hold is that the function agrees with the
+   * compiler. */
+  EXPECT_EQ(pvfrd_struct_size(PVFRD_STRUCT_OPEN_OPTIONS), sizeof(pvfrd_open_options));
+  EXPECT_EQ(pvfrd_struct_size(PVFRD_STRUCT_ARRAY_INFO), sizeof(pvfrd_array_info));
+  EXPECT_EQ(pvfrd_struct_size(PVFRD_STRUCT_DIAGNOSTIC), sizeof(pvfrd_diagnostic));
+
+  /* An unknown id answers zero rather than a plausible size, so a newer
+   * binding asking an older library about a struct it does not have gets a
+   * mismatch it can report instead of a number it would trust. */
+  EXPECT_EQ(pvfrd_struct_size(-1), 0u);
+  EXPECT_EQ(pvfrd_struct_size(99), 0u);
+}
+
+TEST(ApiTest, StructFieldsAreWhereTheHeaderSaysTheyAre) {
+  /* Sizes alone would not catch two fields of equal width swapped. These
+   * offsets would, and they are what a binding in a language without ctypes'
+   * layout rules has to reproduce by hand. */
+  EXPECT_EQ(offsetof(pvfrd_array_info, name), 0u);
+  EXPECT_LT(offsetof(pvfrd_array_info, n_tuples), offsetof(pvfrd_array_info, n_components));
+  EXPECT_LT(offsetof(pvfrd_array_info, n_components), offsetof(pvfrd_array_info, kind));
+
+  EXPECT_EQ(offsetof(pvfrd_diagnostic, kind), 0u);
+  EXPECT_LT(offsetof(pvfrd_diagnostic, element_type), offsetof(pvfrd_diagnostic, line));
+  EXPECT_LT(offsetof(pvfrd_diagnostic, line), offsetof(pvfrd_diagnostic, n_expected));
+  EXPECT_LT(offsetof(pvfrd_diagnostic, n_expected), offsetof(pvfrd_diagnostic, n_actual));
 }

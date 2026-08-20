@@ -136,6 +136,25 @@ typedef struct pvfrd_diagnostic {
 
 PVFRD_API uint32_t pvfrd_abi_version(void);
 
+/* Which struct pvfrd_struct_size is being asked about. */
+typedef enum pvfrd_struct {
+  PVFRD_STRUCT_OPEN_OPTIONS = 0,
+  PVFRD_STRUCT_ARRAY_INFO = 1,
+  PVFRD_STRUCT_DIAGNOSTIC = 2
+} pvfrd_struct;
+
+/* Size in bytes of one of the structs above, as this library was compiled.
+ * Returns 0 for an unknown value.
+ *
+ * A binding that declares these layouts by hand -- which is every
+ * foreign-function binding, including the ctypes one shipped with this
+ * package -- has no compiler checking it. A field in the wrong order, or an
+ * int where an int64 belongs, produces garbage rather than an error, and it
+ * produces it only on the platform whose alignment rules differ from the one
+ * the binding was written on. Comparing sizes catches that at the point where
+ * it can still be reported. */
+PVFRD_API uint32_t pvfrd_struct_size(int which);
+
 /* A short, stable description of a status code. Never NULL. */
 PVFRD_API const char *pvfrd_status_message(int status);
 

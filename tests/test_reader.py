@@ -341,3 +341,46 @@ def test_arrays_outlive_the_reader(mock_frd: Path):
 def test_missing_file_raises():
     with pytest.raises(pyvista_frd.FRDError, match='could not be opened'):
         FRDReader(FIXTURE_DIR / 'not-here.frd')
+
+
+def test_ctypes_struct_layouts_match_the_library():
+    """The handwritten struct declarations must agree with the compiled ones.
+
+    Checked at import too, but asserted here so the failure is a named test
+    rather than an import error somewhere unrelated. This is the check that a
+    Windows or macOS run can fail while Linux passes: nothing about the
+    binding is verified by the compiler.
+    """
+    import ctypes
+
+    from pyvista_frd import _capi
+
+    for name, struct in (
+        ('pvfrd_open_options', _capi._OpenOptions),
+        ('pvfrd_array_info', _capi._ArrayInfo),
+        ('pvfrd_diagnostic', _capi._Diagnostic),
+    ):
+        native = _capi._lib.pvfrd_struct_size(_capi._STRUCT_IDS[name])
+        assert native == ctypes.sizeof(struct), name
+
+
+def test_a_mismatched_struct_is_refused():
+    """The layout check must actually reject something.
+
+    Without this, the comparison above could be reading the same number twice
+    and would agree forever.
+    """
+    import ctypes
+
+    from pyvista_frd import _capi
+
+    class _Wrong(ctypes.Structure):
+        _fields_ = (('a', ctypes.c_int32),)
+
+    original = _capi._ArrayInfo
+    try:
+        _capi._ArrayInfo = _Wrong
+        with pytest.raises(_capi.NativeUnavailableError, match='pvfrd_array_info'):
+            _capi._check_struct_layouts(_capi._lib, 'test')
+    finally:
+        _capi._ArrayInfo = original

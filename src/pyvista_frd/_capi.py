@@ -177,6 +177,9 @@ def _bind(lib: ctypes.CDLL) -> None:
     lib.pvfrd_abi_version.restype = c_uint32
     lib.pvfrd_abi_version.argtypes = []
 
+    lib.pvfrd_struct_size.restype = c_uint32
+    lib.pvfrd_struct_size.argtypes = [c_int]
+
     lib.pvfrd_status_message.restype = c_char_p
     lib.pvfrd_status_message.argtypes = [c_int]
 
@@ -249,6 +252,43 @@ def _bind(lib: ctypes.CDLL) -> None:
     lib.pvfrd_find_array.argtypes = [c_void_p, c_uint64, c_char_p]
 
 
+# ctypes struct id -> the C enumerator it must agree with.
+_STRUCT_IDS = {
+    'pvfrd_open_options': 0,
+    'pvfrd_array_info': 1,
+    'pvfrd_diagnostic': 2,
+}
+
+
+def _check_struct_layouts(lib: ctypes.CDLL, candidate: str) -> None:
+    """Confirm the structs declared here match the ones the library compiled.
+
+    The declarations in this module are handwritten, and nothing checks them:
+    a field in the wrong order or an ``int`` where an ``int64`` belongs
+    produces plausible garbage rather than an error. It also does so only on
+    the platform whose alignment rules differ from the one the binding was
+    written on, which is the worst possible place to find out.
+
+    Comparing sizes will not catch two fields of equal width swapped -- the
+    tests cover that by reading real values -- but it does catch every width
+    and padding mistake, at import, with a message naming the struct.
+    """
+    for name, struct in (
+        ('pvfrd_open_options', _OpenOptions),
+        ('pvfrd_array_info', _ArrayInfo),
+        ('pvfrd_diagnostic', _Diagnostic),
+    ):
+        native = int(lib.pvfrd_struct_size(_STRUCT_IDS[name]))
+        declared = ctypes.sizeof(struct)
+        if native != declared:
+            msg = (
+                f'{candidate}: {name} is {native} bytes in the library and '
+                f'{declared} in this binding. The two are not from the same '
+                f'build, or this platform lays the struct out differently.'
+            )
+            raise NativeUnavailableError(msg)
+
+
 def _load() -> tuple[ctypes.CDLL, str]:
     attempts: list[str] = []
     for candidate in _candidate_paths():
@@ -266,6 +306,7 @@ def _load() -> tuple[ctypes.CDLL, str]:
                 f'The library and the Python package are from different builds.'
             )
             raise NativeUnavailableError(msg)
+        _check_struct_layouts(lib, candidate)
         return lib, candidate
 
     detail = '\n  '.join(attempts) if attempts else '(no candidate paths existed)'
