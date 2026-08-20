@@ -13,6 +13,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
 #include <vector>
 
 #include "pvfrd/pvfrd.h"
@@ -40,7 +41,12 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
   for (uint64_t c = 0; c < n_cells; ++c) {
     for (int64_t k = offsets[c]; k < offsets[c + 1]; ++k) {
       if (connectivity[k] < 0 || static_cast<uint64_t>(connectivity[k]) >= n_points) {
-        __builtin_trap(); /* a point index the mesh cannot satisfy */
+        /* std::abort rather than __builtin_trap: the latter is a GCC and
+         * Clang builtin and MSVC has no such identifier, so the replay
+         * driver -- which is built by every compiler -- would not compile.
+         * Both are fatal, and libFuzzer and the sanitizers report an abort
+         * the same way they report a trap. */
+        std::abort(); /* a point index the mesh cannot satisfy */
       }
     }
   }

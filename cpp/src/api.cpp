@@ -51,7 +51,12 @@ std::FILE *open_path(const char *path) {
   if (wide_length <= 0) return nullptr;
   std::wstring wide(static_cast<size_t>(wide_length), L'\0');
   if (MultiByteToWideChar(CP_UTF8, 0, path, -1, wide.data(), wide_length) <= 0) return nullptr;
-  return _wfopen(wide.c_str(), L"rb");
+  /* _wfopen_s, not _wfopen: the latter is deprecated on MSVC and warns at
+   * /W4, and silencing it with _CRT_SECURE_NO_WARNINGS would silence every
+   * other one of these warnings too. */
+  std::FILE *handle = nullptr;
+  if (_wfopen_s(&handle, wide.c_str(), L"rb") != 0) return nullptr;
+  return handle;
 #else
   return std::fopen(path, "rb");
 #endif

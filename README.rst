@@ -54,6 +54,30 @@ reader appends the derived arrays PyVista's reader appends:
 Elements with the wrong number of nodes, or a type nothing recognises, raise
 ``pyvista.InvalidMeshWarning`` naming the line they were found on.
 
+Speed
+-----
+
+Not why this exists -- multi-language reuse is -- but the question follows the
+language, so it is measured rather than asserted. Against PyVista's reader,
+reading the same file to the same grid:
+
+=========================  ==========  ==========  =====
+file                       pyvista_frd     pyvista  ratio
+=========================  ==========  ==========  =====
+``mesh.frd`` (0.14 MB)        3.15 ms     8.14 ms   2.6x
+synthetic (12.8 MB)          85.7 ms      531 ms    6.2x
+=========================  ==========  ==========  =====
+
+Medians of interleaved runs on one workstation. Treat the ratio as indicative
+and the absolute figures as a property of that machine -- ``benchmarks/read_speed.py``
+reproduces both, and interleaves the two arms rather than running one after
+the other, because a machine that drifts mid-run otherwise charges the drift
+to whichever arm was unlucky.
+
+The ratio grows with file size because both readers pay the same fixed cost to
+build the VTK grid at the end; only the parse differs. On a small file that
+fixed cost is most of the work.
+
 Relationship to PyVista's reader
 --------------------------------
 
@@ -116,7 +140,7 @@ Development
 
 Both tiers read the same fixture corpus under ``tests/fixtures/``.
 
-``tools/mutate.py`` breaks the C++ on purpose — nineteen plausible mistakes,
+``tools/mutate.py`` breaks the C++ on purpose — twenty-one plausible mistakes,
 one at a time — and checks that the suite reddens for each. A green suite has
 two explanations, and that script is what tells them apart. It is also how the
 corpus grew: two mutants survived the first sweep, and the files that now

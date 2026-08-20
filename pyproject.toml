@@ -94,6 +94,9 @@ select = ["ALL"]
 "tests/conformance/ref_frd.py" = ["ALL"]
 "tests/**" = ["ANN", "D", "INP001", "PLR2004", "SLF001"]
 "tools/**" = ["ANN", "C901", "D103", "PLR0912", "PLR0915", "S603", "S607", "SLF001"]
+# The benchmark drives the reference parser directly, which means reaching
+# for its private entry points -- the same ones the conformance suite uses.
+"benchmarks/**" = ["D103", "E501", "INP001", "PERF401", "SLF001"]
 "setup.py" = ["ANN", "S603", "S607"]
 
 [tool.ruff.lint.flake8-quotes]
