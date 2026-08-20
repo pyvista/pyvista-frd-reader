@@ -7,7 +7,20 @@ build-backend = "setuptools.build_meta"
 # expression (`license = "MIT"` plus `license-files`), and older setuptools
 # cannot read it -- it fails with "Cannot import packaging.licenses" while
 # building the wheel, on whichever machine happened to resolve an older one.
-requires = ["cmake>=3.16", "setuptools-scm>=8", "setuptools>=77"]
+#
+# packaging>=24.2 is not redundant with that, and pinning setuptools alone was
+# not enough: setuptools 77 reads the license expression through
+# `packaging.licenses`, which arrived in packaging 24.2, and nothing else here
+# asks for one -- setuptools-scm wants only `packaging>=20`, which an older
+# copy satisfies. Whether the build environment ends up with 24.2 is then an
+# accident of resolution, and on the macOS and Windows runners it went the
+# wrong way while aarch64 Linux went the right way off the same commit.
+requires = [
+  "cmake>=3.16",
+  "packaging>=24.2",
+  "setuptools-scm>=8",
+  "setuptools>=77",
+]
 
 [project]
 authors = [{ name = "The PyVista developers", email = "info@pyvista.org" }]
