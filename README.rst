@@ -154,6 +154,12 @@ two explanations, and that script is what tells them apart. It is also how the
 corpus grew: two mutants survived the first sweep, and the files that now
 catch them were written in response.
 
+Releasing
+---------
+
+Tag it. ``doc/releasing.md`` covers the one-time PyPI setup and what the
+pipeline checks before it will publish.
+
 License
 -------
 
