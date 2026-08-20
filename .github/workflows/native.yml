@@ -226,12 +226,19 @@ jobs:
           # package could not be installed alongside its own dependency --
           # cibuildwheel's install test proves it by failing to resolve them.
           CIBW_SKIP: "*-musllinux_*"
-          # manylinux2014 (glibc 2.17) rather than cibuildwheel's newer
-          # default. The core needs only C++17 and the standard library, which
-          # the 2014 image's toolchain provides, so nothing is given up and
+          # x86_64 targets manylinux2014 (glibc 2.17): the core needs only
+          # C++17 and the standard library, and both NumPy and VTK still
+          # publish 2_17 wheels for it, so the older floor costs nothing and
           # the wheel installs on older enterprise distributions.
+          #
+          # aarch64 cannot. NumPy and VTK publish *only* manylinux_2_28 there,
+          # so a 2014 container has no installable NumPy -- cibuildwheel's own
+          # install test proved it by falling back to a source build and
+          # hitting "NumPy requires GCC >= 10.3" against the image's GCC 9.
+          # Building below a dependency's floor buys nothing: nobody can
+          # install the combination anyway.
           CIBW_MANYLINUX_X86_64_IMAGE: manylinux2014
-          CIBW_MANYLINUX_AARCH64_IMAGE: manylinux2014
+          CIBW_MANYLINUX_AARCH64_IMAGE: manylinux_2_28
           CIBW_ARCHS_MACOS: "x86_64 arm64"
           CIBW_ARCHS_WINDOWS: AMD64
           CIBW_ENVIRONMENT_MACOS: MACOSX_DEPLOYMENT_TARGET=10.15

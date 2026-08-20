@@ -3,7 +3,11 @@ build-backend = "setuptools.build_meta"
 # cmake drives the native core from setup.py. Listed here so a source build
 # does not depend on one being installed system-wide. A C++17 compiler is
 # still required: this package has no pure-Python fallback.
-requires = ["cmake>=3.16", "setuptools-scm>=8", "setuptools>=64"]
+# setuptools>=77, not 64: the [project] table below uses the PEP 639 license
+# expression (`license = "MIT"` plus `license-files`), and older setuptools
+# cannot read it -- it fails with "Cannot import packaging.licenses" while
+# building the wheel, on whichever machine happened to resolve an older one.
+requires = ["cmake>=3.16", "setuptools-scm>=8", "setuptools>=77"]
 
 [project]
 authors = [{ name = "The PyVista developers", email = "info@pyvista.org" }]
