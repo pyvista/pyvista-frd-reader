@@ -193,9 +193,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: mymindstorm/setup-emsdk@v14
+      - uses: mymindstorm/setup-emsdk@v16
         with:
-          version: 3.1.64
+          # Not 3.1.64, which this started on. Under 3.1.64 -- an August
+          # 2024 toolchain, run against the Node 24 the runners now carry --
+          # the generated loader threw before main produced a byte, on the
+          # first fixture and so presumably on all of them. The exact
+          # incompatibility was never established, because the log truncated
+          # the message: the step below now prints it, so if this upgrade is
+          # not the cure the next run will say what is.
+          #
+          # Not the newest release either. 6.0.8 landed the same day this was
+          # pinned, and a build toolchain is not the place to be first.
+          version: 6.0.6
 
       - name: Build natively, for something to compare against
         run: |
@@ -217,11 +227,19 @@ jobs:
           # exactly, so an identical dump means the arithmetic agreed and not
           # merely that the file parsed.
           for fixture in tests/fixtures/*.frd tests/fixtures/elements/*.frd; do
-            ./cpp/build-host/frd_dump "$fixture" > native.txt || true
-            node cpp/build-wasm/frd_dump.js "$fixture" > wasm.txt || true
+            ./cpp/build-host/frd_dump "$fixture" > native.txt 2> native.err || true
+            node cpp/build-wasm/frd_dump.js "$fixture" > wasm.txt 2> wasm.err || true
             if ! diff -q native.txt wasm.txt > /dev/null; then
               echo "::error::WebAssembly output differs for $fixture"
               diff native.txt wasm.txt | head -n 20
+              # Node prints the whole minified loader as context before the
+              # message that matters, and the log truncates the line, taking
+              # the message with it. cut keeps the message readable; without
+              # it a crash and a numeric divergence look identical from here.
+              echo "--- wasm stderr ---"
+              cut -c1-400 wasm.err | head -n 25
+              echo "--- native stderr ---"
+              cut -c1-400 native.err | head -n 10
               exit 1
             fi
           done
