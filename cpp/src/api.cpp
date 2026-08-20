@@ -142,11 +142,19 @@ pvfrd_status pvfrd_open_ex(const char *path, const pvfrd_open_options *options, 
 
   std::string buffer;
   try {
-    char chunk[1 << 16];
+    /* Read straight into the string's own storage. The obvious spelling of
+     * this loop puts a `char chunk[1 << 16]` on the stack, and 64 KiB of
+     * stack is more than some perfectly ordinary targets give a whole thread
+     * -- it is the entire default stack under Emscripten, where this
+     * overflowed on the first file it was handed. Growing the destination and
+     * reading into it costs nothing and drops a copy per chunk. */
+    constexpr size_t kChunk = size_t{1} << 16;
     for (;;) {
-      size_t got = std::fread(chunk, 1, sizeof(chunk), handle);
-      if (got > 0) buffer.append(chunk, got);
-      if (got < sizeof(chunk)) break;
+      const size_t offset = buffer.size();
+      buffer.resize(offset + kChunk);
+      const size_t got = std::fread(&buffer[offset], 1, kChunk, handle);
+      buffer.resize(offset + got);
+      if (got < kChunk) break;
     }
     if (std::ferror(handle) != 0) {
       std::fclose(handle);

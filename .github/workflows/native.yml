@@ -229,6 +229,14 @@ jobs:
 
       - name: Build under emcc
         run: |
+          # Note what is deliberately absent: -sSTACK_SIZE. Emscripten's
+          # default stack is 64 KiB, and that small stack is not an obstacle
+          # to work around -- it is the only detector in this repository for
+          # an oversized stack frame. It earned its keep immediately: the
+          # first time this job ran to completion it found a `char chunk[1 <<
+          # 16]` in the open path, which every other platform tolerated
+          # because it had megabytes to spare. Raising STACK_SIZE would have
+          # made the symptom go away and left the defect.
           emcmake cmake -S cpp -B cpp/build-wasm \
             -DCMAKE_BUILD_TYPE=Release \
             -DPVFRD_BUILD_SHARED=OFF \
