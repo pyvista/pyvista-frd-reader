@@ -46,7 +46,22 @@ jobs:
         # Both architectures on both Unix platforms: the parser indexes the
         # file by byte offset and packs a struct across the ABI, and neither
         # of those is something an x86-only matrix can speak for.
-        os: [ubuntu-latest, ubuntu-24.04-arm, macos-latest, macos-13, windows-latest]
+        #
+        # macos-15-intel, not macos-13, for the Intel half. macos-13 was
+        # retired in December 2025, and a job asking for it does not fail --
+        # it queues forever. That is worse than failing: this row sat queued
+        # through every run of this workflow, never once reporting, and
+        # `release` needs this job, so a tagged release would have hung rather
+        # than said why. macos-15-intel is the last x86_64 image Actions
+        # offers and is scheduled to go the same way in August 2027.
+        os:
+          [
+            ubuntu-latest,
+            ubuntu-24.04-arm,
+            macos-latest,
+            macos-15-intel,
+            windows-latest,
+          ]
 
     steps:
       - uses: actions/checkout@v4
@@ -260,7 +275,7 @@ jobs:
         include:
           - os: ubuntu-latest
           - os: ubuntu-24.04-arm
-          - os: macos-13 # Intel
+          - os: macos-15-intel # the last x86_64 image Actions offers
             macos_archs: x86_64
             macos_env: MACOSX_DEPLOYMENT_TARGET=10.15
           - os: macos-latest # Apple silicon
