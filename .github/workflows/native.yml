@@ -226,18 +226,21 @@ jobs:
           # package could not be installed alongside its own dependency --
           # cibuildwheel's install test proves it by failing to resolve them.
           CIBW_SKIP: "*-musllinux_*"
-          # x86_64 targets manylinux2014 (glibc 2.17): the core needs only
-          # C++17 and the standard library, and both NumPy and VTK still
-          # publish 2_17 wheels for it, so the older floor costs nothing and
-          # the wheel installs on older enterprise distributions.
+          # manylinux_2_28 on both architectures, not cibuildwheel's older
+          # default. This library itself needs only C++17 and the standard
+          # library and would target glibc 2.17 happily -- but NumPy publishes
+          # nothing below manylinux_2_27 for either architecture, and VTK
+          # publishes nothing below 2_28 for aarch64. A 2014-tagged wheel
+          # would therefore advertise an installability that does not exist:
+          # cibuildwheel's own install test proved it, on both architectures,
+          # by falling back to a NumPy source build and hitting "NumPy
+          # requires GCC >= 10.3" against the image's GCC 9.
           #
-          # aarch64 cannot. NumPy and VTK publish *only* manylinux_2_28 there,
-          # so a 2014 container has no installable NumPy -- cibuildwheel's own
-          # install test proved it by falling back to a source build and
-          # hitting "NumPy requires GCC >= 10.3" against the image's GCC 9.
-          # Building below a dependency's floor buys nothing: nobody can
-          # install the combination anyway.
-          CIBW_MANYLINUX_X86_64_IMAGE: manylinux2014
+          # Do not lower either of these on the reasoning that the core is
+          # portable enough for an older glibc. It is; the dependencies are
+          # not, and only the dependency wheel matrix can say which floor
+          # binds today. Check that before moving the floor, not the source.
+          CIBW_MANYLINUX_X86_64_IMAGE: manylinux_2_28
           CIBW_MANYLINUX_AARCH64_IMAGE: manylinux_2_28
           CIBW_ARCHS_MACOS: "x86_64 arm64"
           CIBW_ARCHS_WINDOWS: AMD64
