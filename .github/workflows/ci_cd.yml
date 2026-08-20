@@ -1,0 +1,110 @@
+name: CI
+
+# The Python tier: style, and the conformance sweep that grades this reader
+# against PyVista's.
+#
+# The C++ tier, the wheels and the release live in native.yml, next to the
+# jobs that build the artefacts they publish.
+
+on:
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    # Weekly, for the mutation sweep below. Nothing else here needs a timer.
+    - cron: "17 4 * * 1"
+  push:
+    tags:
+      - "*"
+    branches:
+      - main
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  style:
+    name: Style
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - uses: pre-commit/action@v3.0.1
+
+  unit_testing:
+    name: Conformance (py${{ matrix.python-version }}, vtk ${{ matrix.vtk-version }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.13"]
+        vtk-version: ["latest"]
+        include:
+          # VTK changed its linear-wedge node order at 9.7, and this reader
+          # picks its PE6 permutation from the installed version. Both sides
+          # of that boundary have to be exercised, or the branch that is not
+          # this runner's default is never run at all.
+          - vtk-version: "9.3.1"
+            python-version: "3.11"
+          - vtk-version: "9.6.2"
+            python-version: "3.12"
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: "pip"
+          cache-dependency-path: pyproject.toml
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install .[tests]
+
+      - name: Pin VTK
+        if: matrix.vtk-version != 'latest'
+        run: pip install vtk==${{ matrix.vtk-version }}
+
+      - name: Report what is actually installed
+        # Printed because the matrix says what was *asked for*. A resolver
+        # that quietly gave this runner a different VTK would otherwise make
+        # the wedge-order coverage above a claim rather than a fact.
+        run: |
+          python -c "
+          import pyvista as pv, pyvista_frd
+          from pyvista_frd.reader import _default_wedge_order
+          print('pyvista', pv.__version__)
+          print('vtk', pv.vtk_version_info)
+          print('wedge order', _default_wedge_order())
+          print('library', pyvista_frd.library_path())"
+
+      - name: Test
+        run: pytest -v --color=yes
+
+  mutation:
+    name: Mutation sweep
+    # Nineteen builds of the core, so not on every pull request: it would
+    # serialise the merge queue for a signal that changes only when the tests
+    # do. Weekly, and on request.
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install .[tests]
+      - name: Every planted defect must redden something
+        run: python tools/mutate.py

@@ -1,0 +1,16 @@
+__pycache__/
+*.py[cod]
+*.so
+*.dylib
+*.dll
+.venv/
+build/
+cpp/build*/
+dist/
+wheelhouse/
+*.egg-info/
+src/pyvista_frd/_version.py
+src/pyvista_frd/lib/
+.pytest_cache/
+.ruff_cache/
+.coverage

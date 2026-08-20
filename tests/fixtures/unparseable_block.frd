@@ -1,0 +1,14 @@
+1C unparseable result block
+2C
+ -1    1 0.0 0.0 0.0
+ -1    2 1.0 0.0 0.0
+ -3
+3C
+ -1    1   11
+ -2    1    2
+ -3
+100CL 1 0.5
+ -4 BAD 1
+ -1bad_f 1.0
+ -1also_bad 2.0
+ -3

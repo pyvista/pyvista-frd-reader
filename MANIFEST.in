@@ -1,0 +1,10 @@
+# The sdist has to carry cpp/, or `pip install pyvista-frd-reader` from source
+# cannot build at all: there is no pure-Python fallback to degrade to.
+graft cpp
+graft tests
+include LICENSE
+include README.rst
+recursive-include doc *.md *.rst *.py
+prune cpp/build
+global-exclude *.pyc
+global-exclude __pycache__

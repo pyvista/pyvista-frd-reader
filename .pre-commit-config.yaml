@@ -1,0 +1,44 @@
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.14.2
+    hooks:
+      - id: ruff
+        args: [--fix]
+        # The vendored oracle is PyVista's code, kept byte-identical on
+        # purpose: the whole value of grading against it is that it is
+        # someone else's implementation, unedited.
+        exclude: ^tests/conformance/ref_frd\.py$
+      - id: ruff-format
+        exclude: ^tests/conformance/ref_frd\.py$
+
+  - repo: https://github.com/pre-commit/mirrors-clang-format
+    rev: v19.1.5
+    hooks:
+      - id: clang-format
+        types_or: [c, c++]
+        # The vendored fast_float header is upstream's, kept byte-identical so
+        # it can be replaced by re-downloading it.
+        exclude: ^cpp/third_party/
+
+  - repo: https://github.com/codespell-project/codespell
+    rev: v2.3.0
+    hooks:
+      - id: codespell
+        exclude: ^(cpp/third_party/|tests/fixtures/|tests/conformance/ref_frd\.py)
+        args: ["--ignore-words-list=vertexes,nd,ot,unparseable"]
+
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: check-added-large-files
+        args: ["--maxkb=500"]
+      - id: check-merge-conflict
+      - id: check-yaml
+      - id: end-of-file-fixer
+        # Fixtures are byte-exact inputs: "fixing" one changes what is being
+        # tested, and a file with no trailing newline is a case worth having.
+        # The vendored header is upstream's, kept byte-identical so it can be
+        # replaced by re-downloading it.
+        exclude: ^(tests/fixtures/|cpp/third_party/)
+      - id: trailing-whitespace
+        exclude: ^(tests/fixtures/|cpp/third_party/)

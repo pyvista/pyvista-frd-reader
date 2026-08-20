@@ -1,0 +1,335 @@
+name: Native Core
+
+# The C++ core, the platforms it has to build on, and the wheels that carry it.
+#
+# Each job proves something the others cannot:
+#
+#   cmake      the library builds and its own tests pass on every desktop
+#              platform and architecture we ship a wheel for
+#   sanitizer  the same tests under AddressSanitizer and UndefinedBehaviorSanitizer,
+#              which is where a parser reading untrusted text earns its keep
+#   static     the core links as a static library, for callers vendoring it
+#   wasm       the same sources build *and run* under WebAssembly, checked by
+#              diffing a full dump against the native build rather than by the
+#              build exiting zero
+#   wheels     the shared object we ship actually loads on the target platform
+#   sdist      a source install can still build the core
+#
+# The Python conformance sweep lives in ci_cd.yml, not here: it needs PyVista,
+# and a job that installs a rendering stack on every exotic platform tag is a
+# job that gets skipped somewhere and proves nothing there.
+
+on:
+  pull_request:
+  workflow_dispatch:
+  push:
+    tags:
+      - "*"
+    branches:
+      - main
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  SHELLOPTS: "errexit:pipefail"
+
+jobs:
+  cmake:
+    name: CMake + gtest (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        # Both architectures on both Unix platforms: the parser indexes the
+        # file by byte offset and packs a struct across the ABI, and neither
+        # of those is something an x86-only matrix can speak for.
+        os: [ubuntu-latest, ubuntu-24.04-arm, macos-latest, macos-13, windows-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure
+        shell: bash
+        run: |
+          cmake -S cpp -B cpp/build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DPVFRD_BUILD_SHARED=ON \
+            -DPVFRD_BUILD_TOOLS=ON \
+            -DPVFRD_BUILD_TESTS=ON
+
+      - name: Build
+        shell: bash
+        run: cmake --build cpp/build --config Release --parallel
+
+      - name: Test
+        shell: bash
+        working-directory: cpp/build
+        run: ctest --output-on-failure --build-config Release
+
+      - name: The dump tool must run
+        shell: bash
+        run: |
+          # A tool that builds but cannot open a file is a tool nobody finds
+          # broken until they need it. This is also the artefact the WASM job
+          # compares against.
+          exe=$(find cpp/build -name 'frd_dump*' -type f -perm -u+x | head -n 1)
+          "$exe" tests/fixtures/mesh.frd | head -n 5
+
+  sanitizer:
+    name: ASan + UBSan
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure with sanitizers
+        # Green from the first commit and visible on every pull request. A
+        # sanitizer lane that is allowed to stay red is a lane nobody reads,
+        # and this is a parser handed files it did not write.
+        run: |
+          cmake -S cpp -B cpp/build-asan \
+            -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+            -DPVFRD_BUILD_TESTS=ON \
+            -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer -fno-sanitize-recover=all" \
+            -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address,undefined"
+
+      - name: Build
+        run: cmake --build cpp/build-asan --parallel
+
+      - name: Test
+        working-directory: cpp/build-asan
+        env:
+          # halt_on_error so a report is a failure rather than a line in a log
+          # that scrolls past.
+          ASAN_OPTIONS: detect_leaks=1:halt_on_error=1
+          UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
+        run: ctest --output-on-failure
+
+  fuzz:
+    name: Fuzz the parser
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build the fuzzer
+        run: |
+          cmake -S cpp -B cpp/build-fuzz \
+            -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+            -DPVFRD_BUILD_FUZZERS=ON \
+            -DPVFRD_BUILD_SHARED=OFF \
+            -DPVFRD_BUILD_TOOLS=OFF \
+            -DCMAKE_CXX_COMPILER=clang++
+          cmake --build cpp/build-fuzz --parallel
+
+      - name: Run a short campaign seeded with the corpus
+        # Bounded, because this runs on every pull request. It is a smoke
+        # test for crashes on mutated real input, not a search: a long
+        # campaign belongs on a schedule, and the seeds are what make even a
+        # minute of it reach past the header of a file.
+        run: |
+          mkdir -p /tmp/fuzz-corpus
+          find tests/fixtures -name '*.frd' -exec cp {} /tmp/fuzz-corpus/ \;
+          ./cpp/build-fuzz/fuzz_parse /tmp/fuzz-corpus \
+            -max_total_time=60 -max_len=65536 -print_final_stats=1
+
+  static:
+    name: Static library
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build and test as a static library
+        # The header's export macros differ between the shared and static
+        # builds, so a shared-only matrix cannot say whether a caller
+        # vendoring this as a submodule gets a working header.
+        run: |
+          cmake -S cpp -B cpp/build-static \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DPVFRD_BUILD_SHARED=OFF \
+            -DPVFRD_BUILD_TESTS=ON
+          cmake --build cpp/build-static --parallel
+          cd cpp/build-static && ctest --output-on-failure
+
+  wasm:
+    name: WebAssembly
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: 3.1.64
+
+      - name: Build natively, for something to compare against
+        run: |
+          cmake -S cpp -B cpp/build-host -DCMAKE_BUILD_TYPE=Release -DPVFRD_BUILD_TOOLS=ON
+          cmake --build cpp/build-host --parallel
+
+      - name: Build under emcc
+        run: |
+          emcmake cmake -S cpp -B cpp/build-wasm \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DPVFRD_BUILD_SHARED=OFF \
+            -DPVFRD_BUILD_TOOLS=ON \
+            -DCMAKE_EXE_LINKER_FLAGS="-sALLOW_MEMORY_GROWTH=1 -sNODERAWFS=1 -sEXIT_RUNTIME=1"
+          cmake --build cpp/build-wasm --parallel
+
+      - name: The WASM build must agree with the native one, byte for byte
+        run: |
+          # frd_dump prints every value with %.17g, which round-trips a double
+          # exactly, so an identical dump means the arithmetic agreed and not
+          # merely that the file parsed.
+          for fixture in tests/fixtures/*.frd tests/fixtures/elements/*.frd; do
+            ./cpp/build-host/frd_dump "$fixture" > native.txt || true
+            node cpp/build-wasm/frd_dump.js "$fixture" > wasm.txt || true
+            if ! diff -q native.txt wasm.txt > /dev/null; then
+              echo "::error::WebAssembly output differs for $fixture"
+              diff native.txt wasm.txt | head -n 20
+              exit 1
+            fi
+          done
+          echo "WebAssembly agrees with native on every fixture"
+
+  wheels:
+    name: Wheels (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, ubuntu-24.04-arm, macos-latest, windows-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # setuptools-scm needs the tags to derive a version.
+          fetch-depth: 0
+
+      - name: Build wheels
+        uses: pypa/cibuildwheel@v2.21.3
+        env:
+          # One wheel per platform, not one per interpreter: the bundled
+          # library is loaded through ctypes and carries no CPython ABI, and
+          # setup.py tags the wheel py3-none-<platform> to say so.
+          CIBW_BUILD: "cp312-*"
+          # No musl wheels. VTK publishes none, so a musllinux wheel of this
+          # package could not be installed alongside its own dependency --
+          # cibuildwheel's install test proves it by failing to resolve them.
+          CIBW_SKIP: "*-musllinux_*"
+          # manylinux2014 (glibc 2.17) rather than cibuildwheel's newer
+          # default. The core needs only C++17 and the standard library, which
+          # the 2014 image's toolchain provides, so nothing is given up and
+          # the wheel installs on older enterprise distributions.
+          CIBW_MANYLINUX_X86_64_IMAGE: manylinux2014
+          CIBW_MANYLINUX_AARCH64_IMAGE: manylinux2014
+          CIBW_ARCHS_MACOS: "x86_64 arm64"
+          CIBW_ARCHS_WINDOWS: AMD64
+          CIBW_ENVIRONMENT_MACOS: MACOSX_DEPLOYMENT_TARGET=10.15
+          # Checks the property only a wheel can have: that the library inside
+          # it loads on the machine the wheel targets, and that it is the
+          # bundled one rather than something else on the loader path. The
+          # correctness of that library is the cmake job's business.
+          CIBW_TEST_REQUIRES: ""
+          CIBW_TEST_COMMAND: >
+            python -c
+            "import pyvista_frd, pathlib;
+            p = pathlib.Path(pyvista_frd.library_path());
+            assert p.exists(), p;
+            assert 'pyvista_frd' in p.parts, f'loaded {p}, not the bundled library';
+            print('native core loaded from', p)"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheels-${{ matrix.os }}
+          path: wheelhouse/*.whl
+
+  sdist:
+    name: Source distribution
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Build the sdist
+        run: |
+          python -m pip install --upgrade pip build
+          python -m build --sdist
+
+      - name: A source install must build the core
+        # The sdist has to carry cpp/. If it does not, this install fails --
+        # which is the point of having no fallback to degrade to.
+        run: |
+          pip install dist/*.tar.gz
+          cd "$(mktemp -d)"
+          python -c "
+          import pyvista_frd
+          print('built from sdist:', pyvista_frd.library_path())"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sdist
+          path: dist/*.tar.gz
+
+  release:
+    name: Release
+    # Publishes the artefacts the jobs above built and tested, rather than a
+    # fresh build made on this runner. A release job that rebuilds is
+    # publishing something no test ever ran against.
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    needs: [cmake, sanitizer, fuzz, static, wasm, wheels, sdist]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment:
+      name: pypi
+      url: https://pypi.org/p/pyvista-frd-reader
+    permissions:
+      id-token: write # mandatory for trusted publishing
+      contents: write # required to create GitHub releases
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Collect the distributions
+        run: |
+          mkdir -p dist
+          find artifacts -name '*.whl' -exec cp {} dist/ \;
+          find artifacts -name '*.tar.gz' -exec cp {} dist/ \;
+          ls -la dist/
+
+      - name: Every platform must be represented
+        # A partial upload is worse than none: PyPI keeps what it is given,
+        # and a release missing its macOS wheel sends every Mac user to a
+        # source build they may not be able to run.
+        run: |
+          for tag in manylinux_2_17_x86_64 manylinux_2_17_aarch64 macosx win_amd64; do
+            if ! ls dist/*"$tag"*.whl > /dev/null 2>&1; then
+              echo "::error::no wheel matching $tag; refusing to publish a partial release"
+              exit 1
+            fi
+          done
+          ls dist/*.tar.gz > /dev/null
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          skip-existing: true
+
+      - name: Create the GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            dist/*

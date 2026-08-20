@@ -1,0 +1,103 @@
+[build-system]
+build-backend = "setuptools.build_meta"
+# cmake drives the native core from setup.py. Listed here so a source build
+# does not depend on one being installed system-wide. A C++17 compiler is
+# still required: this package has no pure-Python fallback.
+requires = ["cmake>=3.16", "setuptools-scm>=8", "setuptools>=64"]
+
+[project]
+authors = [{ name = "The PyVista developers", email = "info@pyvista.org" }]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Science/Research",
+  "Programming Language :: C++",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Scientific/Engineering",
+]
+dependencies = ["numpy>=1.23", "pyvista>=0.45.0"]
+description = "Read CalculiX FRD result files into PyVista, backed by a C++ core with a C ABI."
+dynamic = ["version"]
+keywords = ["calculix", "fea", "frd", "pyvista", "vtk"]
+license = "MIT"
+license-files = ["LICENSE"]
+name = "pyvista-frd-reader"
+readme = "README.rst"
+requires-python = ">=3.10"
+
+[project.urls]
+Home = "https://github.com/pyvista/pyvista-frd-reader"
+Issues = "https://github.com/pyvista/pyvista-frd-reader/issues"
+
+[project.optional-dependencies]
+# No `docs` extra until there is a docs build to go with it: an extra naming
+# a capability nothing checks is a claim, not a feature. The reference is
+# README.rst and doc/divergences.md.
+tests = ["pytest-cov>=5.0.0", "pytest>=6.2.0"]
+
+# Deliberately no `[project.entry-points."pyvista.readers"]`.
+#
+# PyVista ships its own `.frd` reader, so an entry point here would make
+# `pv.read` use this package while `pv.get_reader` kept the built-in -- two
+# readers for one extension, differing by which call path a user took.
+# Overriding it is a follow-up, once PyVista supports being overridden.
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools_scm]
+fallback_version = "0.0.0.dev0"
+git_describe_command = "git describe --dirty --tags --long --match v*"
+tag_regex = "^v(?P<version>[0-9]+\\.[0-9]+\\.[0-9]+(?:[abrc][0-9]+)?(?:\\.post[0-9]+)?(?:\\.dev[0-9]+)?)$"
+version_file = "src/pyvista_frd/_version.py"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.mypy]
+ignore_missing_imports = true
+
+[tool.ruff]
+exclude = ['.git', 'build', 'cpp/build', 'dist', 'doc/_build', '__pycache__']
+indent-width = 4
+line-length = 100
+
+[tool.ruff.format]
+docstring-code-format = true
+quote-style = "single"
+
+[tool.ruff.lint]
+# D213 rather than D212: the summary goes on the first line, which is what
+# PyVista's own sources do and what a reader coming from there expects.
+ignore = [
+  "COM812",
+  "D107",  # the class docstring documents __init__'s parameters, numpydoc style
+  "D203",
+  "D213",
+  # __enter__ returning the class rather than typing.Self, which is 3.11+.
+  "PYI034",
+  "ISC001",
+  "PLC0415",
+  "S101",
+  "T201",
+]
+select = ["ALL"]
+
+[tool.ruff.lint.per-file-ignores]
+# The vendored oracle is someone else's code, kept byte-identical on purpose.
+"tests/conformance/ref_frd.py" = ["ALL"]
+"tests/**" = ["ANN", "D", "INP001", "PLR2004", "SLF001"]
+"tools/**" = ["ANN", "C901", "D103", "PLR0912", "PLR0915", "S603", "S607", "SLF001"]
+"setup.py" = ["ANN", "S603", "S607"]
+
+[tool.ruff.lint.flake8-quotes]
+# Matched to the formatter's quote-style above; leaving them disagreeing makes
+# every run print a warning and fight itself.
+inline-quotes = "single"
+
+[tool.ruff.lint.isort]
+force-sort-within-sections = true
+combine-as-imports = true
+force-single-line = true
