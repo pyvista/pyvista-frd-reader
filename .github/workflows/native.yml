@@ -236,6 +236,31 @@ jobs:
             -DCMAKE_EXE_LINKER_FLAGS="-sALLOW_MEMORY_GROWTH=1 -sNODERAWFS=1 -sEXIT_RUNTIME=1"
           cmake --build cpp/build-wasm --parallel
 
+      - name: The WASM build must run at all
+        # Separate from the comparison below, and deliberately not inside a
+        # pipeline. An empty wasm output and a differing one are different
+        # failures with different causes, and the comparison step cannot tell
+        # them apart -- it reports "differs" either way. This one prints the
+        # interpreter's own stderr whether or not it fails, which is the
+        # evidence the comparison step kept swallowing.
+        run: |
+          set +e
+          node cpp/build-wasm/frd_dump.js tests/fixtures/mesh.frd > smoke.out 2> smoke.err
+          code=$?
+          set -e
+          echo "exit status: $code"
+          echo "--- stdout, first 5 lines ---"
+          cut -c1-200 smoke.out 2>/dev/null | head -n 5 || true
+          # Node prints the entire minified loader as context ahead of the
+          # message that matters, and the log truncates the line at 64KB,
+          # taking the message with it. cut is what keeps it readable.
+          echo "--- stderr, first 30 lines, long lines cut ---"
+          cut -c1-400 smoke.err 2>/dev/null | head -n 30 || true
+          if [ ! -s smoke.out ]; then
+            echo "::error::the WASM build produced no output at all; see stderr above"
+            exit 1
+          fi
+
       - name: The WASM build must agree with the native one, byte for byte
         run: |
           # frd_dump prints every value with %.17g, which round-trips a double
@@ -246,15 +271,16 @@ jobs:
             node cpp/build-wasm/frd_dump.js "$fixture" > wasm.txt 2> wasm.err || true
             if ! diff -q native.txt wasm.txt > /dev/null; then
               echo "::error::WebAssembly output differs for $fixture"
-              diff native.txt wasm.txt | head -n 20
-              # Node prints the whole minified loader as context before the
-              # message that matters, and the log truncates the line, taking
-              # the message with it. cut keeps the message readable; without
-              # it a crash and a numeric divergence look identical from here.
+              # `|| true` on every pipeline here, and it is not decoration.
+              # The runner sets errexit and pipefail, diff exits 1 when files
+              # differ, and head swallows nothing -- so without it the step
+              # dies on this very line and prints none of the diagnosis
+              # below. That is exactly what happened the first two times.
+              diff native.txt wasm.txt | head -n 20 || true
               echo "--- wasm stderr ---"
-              cut -c1-400 wasm.err | head -n 25
+              cut -c1-400 wasm.err 2>/dev/null | head -n 25 || true
               echo "--- native stderr ---"
-              cut -c1-400 native.err | head -n 10
+              cut -c1-400 native.err 2>/dev/null | head -n 10 || true
               exit 1
             fi
           done
