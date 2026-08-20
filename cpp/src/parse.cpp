@@ -486,7 +486,14 @@ void Document::materialise(uint64_t step_index, MaterialisedStep *out) const {
 
   for (size_t b = 0; b < order.size(); ++b) {
     const BlockValues &values = collapsed[b];
-    const size_t n_components = values.values[0].size();
+    /* Guarded at the point of use, not by the `ids.empty()` skip above. The
+     * two are parallel today -- BlockValues::set appends to both -- so this
+     * branch is not reachable, and that is exactly the problem with relying
+     * on it: the safety of an index into `values` would be a property of a
+     * different member, maintained by a different function. Indexing [0] on
+     * an empty vector is undefined, and undefined behaviour is not a thing to
+     * hold in place with an invariant stated somewhere else. */
+    const size_t n_components = values.values.empty() ? 0 : values.values[0].size();
 
     Array array;
     array.name = order[b];

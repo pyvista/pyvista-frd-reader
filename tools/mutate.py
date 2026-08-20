@@ -278,8 +278,26 @@ def run_tests(build_dir: Path) -> tuple[bool, list[str]]:
     culprits = []
     if gtest.returncode < 0 or gtest.returncode > 1:
         # Negative is a signal, above 1 is an abort: the binary died rather
-        # than reporting failures, so no individual test can be named.
-        culprits.append(f'<gtest binary crashed, exit {gtest.returncode}>')
+        # than reporting failures, so gtest printed no [  FAILED  ] line.
+        #
+        # It did print `[ RUN      ] Suite.Name` before entering the test that
+        # killed it, though, and that is the test the crash belongs to. Naming
+        # it matters: without it a mutant that provokes undefined behaviour in
+        # exactly the test written to catch it gets reported as killed by an
+        # unexpected gate, which reads as a hole in the suite that is not
+        # there. That is precisely what `empty-block-kept` did.
+        running = [
+            line.strip().replace('[ RUN      ]', '').strip()
+            for line in gtest.stdout.splitlines()
+            if line.strip().startswith('[ RUN      ]')
+        ]
+        where = f' in {running[-1]}' if running else ''
+        culprits.append(f'<gtest binary crashed, exit {gtest.returncode}{where}>')
+        if running:
+            # So the expected-catcher comparison can match it. A crash inside
+            # the intended test is still a kill by the intended test -- a
+            # weaker one than an assertion, but not an unexplained one.
+            culprits.append(running[-1])
     for line in (gtest.stdout + pytest.stdout).splitlines():
         stripped = line.strip()
         if stripped.startswith('FAILED '):
