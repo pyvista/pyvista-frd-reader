@@ -272,6 +272,10 @@ pvfrd_status pvfrd_array_data(const pvfrd_file *file, uint64_t step, uint64_t in
   return PVFRD_OK;
 }
 
+uint64_t pvfrd_steps_parsed(const pvfrd_file *file) {
+  return file == nullptr ? 0 : file->document.steps_parsed();
+}
+
 int64_t pvfrd_find_array(const pvfrd_file *file, uint64_t step, const char *name) {
   if (file == nullptr || name == nullptr) return -1;
   if (step >= file->document.n_steps()) return -1;

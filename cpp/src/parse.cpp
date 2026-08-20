@@ -585,6 +585,7 @@ const MaterialisedStep *Document::step_arrays(uint64_t step) const {
   std::unique_ptr<MaterialisedStep> &slot = materialised_[step];
   if (!slot) {
     slot = std::make_unique<MaterialisedStep>();
+    steps_parsed_.fetch_add(1);
     materialise(step, slot.get());
     slot->done = true;
   }

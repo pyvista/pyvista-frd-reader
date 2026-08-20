@@ -667,3 +667,68 @@ TEST(ParseTest, WhitespaceFallbackRescuesAPaddedWideRecord) {
   EXPECT_EQ(doc.connectivity().size(), 20u);
   EXPECT_EQ(pvfrd_n_diagnostics(doc.get()), 0u);
 }
+
+TEST(ParseTest, StepsAreMaterialisedOnDemandAndOnlyOnce) {
+  /* The claim this checks is in the public header and the README: opening a
+   * file does not parse the values of every step, so reading one step of a
+   * many-step file does not pay for the rest.
+   *
+   * Not measured by timing. A fifty-step fixture fits in page cache, so an
+   * implementation that parsed everything up front would produce the same
+   * wall clock, the same arrays, and the same counts -- and the claim would
+   * stay green while being false. Counting is what distinguishes them. */
+  std::string document = std::string(kFourNodes);
+  const int n_steps = 50;
+  for (int i = 0; i < n_steps; ++i) {
+    document += "100CL " + std::to_string(i + 1) + " " + std::to_string(i + 1) + ".0\n";
+    document += " -4 ALPHA 1\n -1    1 " + std::to_string(i) + ".0\n -3\n";
+  }
+
+  Doc doc(document);
+  ASSERT_EQ(doc.status(), PVFRD_OK);
+  ASSERT_EQ(pvfrd_n_steps(doc.get()), static_cast<uint64_t>(n_steps));
+
+  /* Opening parsed the mesh and indexed the blocks, and nothing else. */
+  EXPECT_EQ(pvfrd_steps_parsed(doc.get()), 0u);
+
+  uint64_t n = 0;
+  ASSERT_EQ(pvfrd_n_arrays(doc.get(), 7, &n), PVFRD_OK);
+  EXPECT_EQ(n, 1u);
+  EXPECT_EQ(pvfrd_steps_parsed(doc.get()), 1u);
+
+  /* Asking about the same step again is a lookup, not a second parse. This
+   * is why the counter counts parses: a count of parsed *steps* would be one
+   * either way, and a reader re-parsing on every request would look correct. */
+  const double *data = nullptr;
+  ASSERT_EQ(pvfrd_array_data(doc.get(), 7, 0, &data), PVFRD_OK);
+  EXPECT_DOUBLE_EQ(data[0], 7.0);
+  EXPECT_EQ(pvfrd_find_array(doc.get(), 7, "ALPHA"), 0);
+  EXPECT_EQ(pvfrd_steps_parsed(doc.get()), 1u);
+
+  /* A different step costs one more, and only one more. */
+  ASSERT_EQ(pvfrd_array_data(doc.get(), 40, 0, &data), PVFRD_OK);
+  EXPECT_DOUBLE_EQ(data[0], 40.0);
+  EXPECT_EQ(pvfrd_steps_parsed(doc.get()), 2u);
+
+  /* And the counter really can reach the top, so the assertions above are
+   * not passing because it is stuck. */
+  for (uint64_t step = 0; step < static_cast<uint64_t>(n_steps); ++step) {
+    ASSERT_EQ(pvfrd_array_data(doc.get(), step, 0, &data), PVFRD_OK);
+  }
+  EXPECT_EQ(pvfrd_steps_parsed(doc.get()), static_cast<uint64_t>(n_steps));
+}
+
+TEST(ParseTest, DiagnosticsAreAvailableWithoutMaterialisingAnything) {
+  /* The header says diagnostics come out of the element block, which is
+   * parsed eagerly, so a caller can warn before touching any results. If
+   * reading them materialised a step, that promise would be false for a file
+   * with a thousand of them. */
+  Doc doc(std::string(kFourNodes) +
+          "3C\n -1    1  999\n -3\n"
+          "100CL 1 0.5\n -4 ALPHA 1\n -1    1 1.0\n -3\n");
+  ASSERT_EQ(doc.status(), PVFRD_OK);
+  EXPECT_EQ(pvfrd_n_diagnostics(doc.get()), 1u);
+  pvfrd_diagnostic diagnostic;
+  ASSERT_EQ(pvfrd_diagnostic_at(doc.get(), 0, &diagnostic), PVFRD_OK);
+  EXPECT_EQ(pvfrd_steps_parsed(doc.get()), 0u);
+}

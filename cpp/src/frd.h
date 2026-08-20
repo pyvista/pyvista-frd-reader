@@ -3,6 +3,7 @@
 #ifndef PVFRD_FRD_H
 #define PVFRD_FRD_H
 
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <map>
@@ -75,6 +76,10 @@ class Document {
    * last error when the step cannot be built. */
   const MaterialisedStep *step_arrays(uint64_t step) const;
 
+  /* How many times a step's values have been parsed. See pvfrd_steps_parsed
+   * in the public header for why this is visible. */
+  uint64_t steps_parsed() const { return steps_parsed_.load(); }
+
   const std::string &last_error() const { return last_error_; }
   void set_last_error(std::string message) const { last_error_ = std::move(message); }
 
@@ -117,6 +122,9 @@ class Document {
 
   mutable std::vector<std::unique_ptr<MaterialisedStep>> materialised_;
   mutable std::mutex materialise_mutex_;
+  /* Counts parses, not parsed steps: a re-parse has to be visible, and it
+   * would not be if this were derived from how many slots are filled. */
+  mutable std::atomic<uint64_t> steps_parsed_{0};
   mutable std::string last_error_;
 };
 

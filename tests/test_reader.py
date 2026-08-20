@@ -384,3 +384,46 @@ def test_a_mismatched_struct_is_refused():
             _capi._check_struct_layouts(_capi._lib, 'test')
     finally:
         _capi._ArrayInfo = original
+
+
+def test_reading_one_step_does_not_parse_the_others(tmp_path):
+    """Laziness, asserted by counting rather than by timing.
+
+    A fixture small enough to time is a fixture small enough to sit in page
+    cache, where an eager implementation looks identical. The count is what
+    tells the two designs apart.
+    """
+    lines = ['2C', ' -1    1 0.0 0.0 0.0', ' -1    2 1.0 0.0 0.0', ' -3']
+    for i in range(30):
+        lines += [f'100CL {i + 1} {i + 1}.0', ' -4 ALPHA 1', f' -1    1 {i}.0', ' -3']
+    path = tmp_path / 'many_steps.frd'
+    path.write_text('\n'.join(lines) + '\n', encoding='utf-8')
+
+    handle = pyvista_frd.NativeFile(str(path))
+    assert handle.n_steps == 30
+    assert handle.steps_parsed == 0
+
+    handle.array(11, 0)
+    assert handle.steps_parsed == 1
+
+    handle.array(11, 0)
+    assert handle.steps_parsed == 1, 'a repeat read parsed the step again'
+
+    handle.array(29, 0)
+    assert handle.steps_parsed == 2
+
+
+def test_the_reader_builds_only_the_active_step(tmp_path):
+    """FRDReader.read() must not drag in every step's arrays."""
+    lines = ['2C', ' -1    1 0.0 0.0 0.0', ' -1    2 1.0 0.0 0.0', ' -3']
+    for i in range(12):
+        lines += [f'100CL {i + 1} {i + 1}.0', ' -4 ALPHA 1', f' -1    1 {i}.0', ' -3']
+    path = tmp_path / 'many_steps.frd'
+    path.write_text('\n'.join(lines) + '\n', encoding='utf-8')
+
+    reader = FRDReader(path)
+    assert reader._file.steps_parsed == 0
+    reader.set_active_time_point(5)
+    mesh = reader.read()
+    assert mesh.point_data['ALPHA'][0] == 5.0
+    assert reader._file.steps_parsed == 1

@@ -267,6 +267,21 @@ PVFRD_API pvfrd_status pvfrd_array_data(const pvfrd_file *file, uint64_t step, u
 /* Index of the array called `name` within `step`, or -1 if there is none. */
 PVFRD_API int64_t pvfrd_find_array(const pvfrd_file *file, uint64_t step, const char *name);
 
+/* How many times a step's values have been parsed.
+ *
+ * Zero immediately after opening. For correct behaviour it equals the number
+ * of *distinct* steps a caller has asked about, because a step is parsed at
+ * most once and every later request is a lookup.
+ *
+ * Exposed because both halves of that are otherwise unverifiable claims. A
+ * reader that parsed everything up front, or that re-parsed on every request,
+ * would return identical arrays and identical timings on any file small
+ * enough to sit in page cache -- the only thing separating the designs is
+ * what a large file costs. Counting parses is what tells them apart, and it
+ * counts parses rather than parsed steps so that a re-parse is visible at
+ * all. */
+PVFRD_API uint64_t pvfrd_steps_parsed(const pvfrd_file *file);
+
 #ifdef __cplusplus
 } /* extern "C" */
 #endif

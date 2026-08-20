@@ -251,6 +251,9 @@ def _bind(lib: ctypes.CDLL) -> None:
     lib.pvfrd_find_array.restype = c_int64
     lib.pvfrd_find_array.argtypes = [c_void_p, c_uint64, c_char_p]
 
+    lib.pvfrd_steps_parsed.restype = c_uint64
+    lib.pvfrd_steps_parsed.argtypes = [c_void_p]
+
 
 # ctypes struct id -> the C enumerator it must agree with.
 _STRUCT_IDS = {
@@ -513,6 +516,17 @@ class NativeFile:
         _check(_lib.pvfrd_array_data(handle, step, index, byref(pointer)), handle)
         shape = (self.n_points,) if n_components == 1 else (self.n_points, n_components)
         return _as_array(pointer, shape, np.float64)
+
+    @property
+    def steps_parsed(self) -> int:
+        """Number of times a step's values have been parsed.
+
+        Zero until a step is asked for, and thereafter equal to the number of
+        distinct steps requested. Exposed so that both halves of the lazy step
+        path -- parsed on demand, and parsed at most once -- are things a test
+        can assert rather than things the documentation asserts.
+        """
+        return int(_lib.pvfrd_steps_parsed(self._require_open()))
 
     def find_array(self, step: int, name: str) -> int:
         """Index of ``name`` within ``step``, or -1."""

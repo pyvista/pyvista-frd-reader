@@ -69,6 +69,6 @@ def test_the_mutant_set_has_not_shrunk():
     The count is pinned for the same reason the corpus count is: removing a
     mutant is a decision, and it should look like one in the diff.
     """
-    assert len(mutate.MUTANTS) >= 19, 'mutants have been removed from the harness'
+    assert len(mutate.MUTANTS) >= 21, 'mutants have been removed from the harness'
     names = [m.name for m in mutate.MUTANTS]
     assert len(names) == len(set(names)), 'two mutants share a name'

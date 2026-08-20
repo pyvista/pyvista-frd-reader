@@ -191,6 +191,23 @@ MUTANTS = [
         expected_catcher='test_warning_text_is_exact',
     ),
     Mutant(
+        name='materialisation-is-eager',
+        path='cpp/src/parse.cpp',
+        old='  materialised_.resize(steps_.size());',
+        new=(
+            '  materialised_.resize(steps_.size());\n'
+            '  for (uint64_t s = 0; s < steps_.size(); ++s) step_arrays(s);'
+        ),
+        expected_catcher='ParseTest.StepsAreMaterialisedOnDemandAndOnlyOnce',
+    ),
+    Mutant(
+        name='repeat-read-reparses',
+        path='cpp/src/parse.cpp',
+        old='  if (!slot) {',
+        new='  if (true) {',
+        expected_catcher='ParseTest.StepsAreMaterialisedOnDemandAndOnlyOnce',
+    ),
+    Mutant(
         name='missing-node-drops-nothing',
         path='cpp/src/parse.cpp',
         old='    if (!complete) continue;',
