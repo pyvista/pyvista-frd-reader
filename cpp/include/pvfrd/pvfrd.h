@@ -146,7 +146,11 @@ PVFRD_API const char *pvfrd_last_error(const pvfrd_file *file);
 
 /* ---- Opening ---- */
 
-/* Open by path. Equivalent to pvfrd_open_ex with zeroed options. */
+/* Open by path. Equivalent to pvfrd_open_ex with zeroed options.
+ *
+ * `path` is UTF-8 on every platform, including Windows, where it is converted
+ * to UTF-16 internally. Passing bytes in the active code page instead would
+ * open the wrong file for any path outside ASCII. */
 PVFRD_API pvfrd_status pvfrd_open(const char *path, pvfrd_file **out);
 
 PVFRD_API pvfrd_status pvfrd_open_ex(const char *path, const pvfrd_open_options *options,

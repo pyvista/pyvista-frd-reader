@@ -75,7 +75,11 @@ jobs:
           # A tool that builds but cannot open a file is a tool nobody finds
           # broken until they need it. This is also the artefact the WASM job
           # compares against.
-          exe=$(find cpp/build -name 'frd_dump*' -type f -perm -u+x | head -n 1)
+          # Named exactly, not by a glob: a multi-config generator leaves
+          # intermediate files alongside the binary whose names also start
+          # with the target's.
+          exe=$(find cpp/build \( -name 'frd_dump' -o -name 'frd_dump.exe' \) -type f | head -n 1)
+          if [ -z "$exe" ]; then echo "::error::frd_dump was not built"; exit 1; fi
           "$exe" tests/fixtures/mesh.frd | head -n 5
 
   sanitizer:

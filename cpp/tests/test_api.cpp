@@ -9,6 +9,8 @@
 #include <gtest/gtest.h>
 
 #include <cstdio>
+#include <filesystem>
+#include <fstream>
 #include <string>
 #include <thread>
 #include <vector>
@@ -341,4 +343,40 @@ TEST(ApiTest, CellOffsetsAlwaysHaveOneMoreEntryThanCells) {
     }
     pvfrd_close(file);
   }
+}
+
+TEST(ApiTest, PathsAreUtf8OnEveryPlatform) {
+  /* The header promises UTF-8 paths everywhere. On Windows that is not what
+   * fopen does with its bytes -- it reads them in the active code page, so a
+   * path with anything outside ASCII opens the wrong file or none at all.
+   *
+   * This is written as a test rather than trusted because it is invisible
+   * from a POSIX machine, where the bytes go through unchanged and any
+   * implementation passes. Only the Windows lane can fail it. */
+  const std::filesystem::path directory =
+      std::filesystem::temp_directory_path() / "pvfrd-\xC3\xA9\xC3\xA7-test";
+  std::error_code error;
+  std::filesystem::create_directories(directory, error);
+  ASSERT_FALSE(error) << error.message();
+
+  const std::filesystem::path file = directory / "m\xC3\xA4sh.frd";
+  {
+    std::ofstream out(file, std::ios::binary);
+    ASSERT_TRUE(out.is_open());
+    out << "2C\n -1    1 1.0 2.0 3.0\n -3\n";
+  }
+
+  /* u8string(), not string(): on Windows the native path is UTF-16 and
+   * string() would narrow it through the active code page -- reintroducing
+   * the very bug this checks for, on the test's side. */
+  /* In C++17 this returns a std::string; C++20 changed it to std::u8string,
+   * which is why the result is not spelled with auto. */
+  const std::string utf8 = file.u8string();
+  pvfrd_file *opened = nullptr;
+  ASSERT_EQ(pvfrd_open(utf8.c_str(), &opened), PVFRD_OK);
+  EXPECT_EQ(pvfrd_n_points(opened), 1u);
+  EXPECT_DOUBLE_EQ(pvfrd_points(opened)[1], 2.0);
+  pvfrd_close(opened);
+
+  std::filesystem::remove_all(directory, error);
 }

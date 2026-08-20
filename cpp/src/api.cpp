@@ -16,6 +16,10 @@
 #include <new>
 #include <string>
 
+#if defined(_WIN32)
+#include <windows.h>
+#endif
+
 #include "frd.h"
 #include "pvfrd/pvfrd.h"
 
@@ -31,6 +35,27 @@ struct pvfrd_file {
 namespace {
 
 const pvfrd_open_options kDefaultOptions = {PVFRD_WEDGE_ASIS, 0};
+
+/* Open a path given as UTF-8, which is what the header promises.
+ *
+ * On Windows that promise needs work: fopen interprets its bytes in the
+ * process's active code page, not as UTF-8, so a path containing anything
+ * outside ASCII fails to open -- or, worse, opens a different file. Python
+ * hands this function UTF-8 (PEP 529), and so does any caller following the
+ * header, so the bytes are converted to UTF-16 here and _wfopen is used.
+ *
+ * Everywhere else, a path is bytes and fopen takes them unchanged. */
+std::FILE *open_path(const char *path) {
+#if defined(_WIN32)
+  const int wide_length = MultiByteToWideChar(CP_UTF8, 0, path, -1, nullptr, 0);
+  if (wide_length <= 0) return nullptr;
+  std::wstring wide(static_cast<size_t>(wide_length), L'\0');
+  if (MultiByteToWideChar(CP_UTF8, 0, path, -1, wide.data(), wide_length) <= 0) return nullptr;
+  return _wfopen(wide.c_str(), L"rb");
+#else
+  return std::fopen(path, "rb");
+#endif
+}
 
 pvfrd_status open_from_buffer(std::string buffer, const pvfrd_open_options *options,
                               pvfrd_file **out) {
@@ -98,7 +123,7 @@ pvfrd_status pvfrd_open_ex(const char *path, const pvfrd_open_options *options, 
    * save; and holding the bytes is what lets a time step be materialised
    * later without going back to disk, which is the point of the lazy step
    * path. */
-  std::FILE *handle = std::fopen(path, "rb");
+  std::FILE *handle = open_path(path);
   if (handle == nullptr) return PVFRD_E_IO;
 
   std::string buffer;

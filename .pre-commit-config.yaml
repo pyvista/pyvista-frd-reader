@@ -2,7 +2,7 @@ repos:
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.14.2
     hooks:
-      - id: ruff
+      - id: ruff-check
         args: [--fix]
         # The vendored oracle is PyVista's code, kept byte-identical on
         # purpose: the whole value of grading against it is that it is
