@@ -159,6 +159,33 @@ jobs:
           cmake --build cpp/build-static --parallel
           cd cpp/build-static && ctest --output-on-failure
 
+      - name: The README's C example must build
+        # The README teaches the C API by showing it. A rename would redden
+        # the gtest tier and leave the example quietly wrong, which is worse
+        # than having no example: someone would copy it. Linked, not just
+        # compiled, so a symbol the header declares and the library never
+        # defines is caught here rather than by the first person to vendor it.
+        run: |
+          python3 tools/check_readme_c.py cpp/include \
+            "$(find cpp/build-static -name 'libpvfrd.a' | head -n1)"
+
+      - name: The example check must be able to fail
+        # Same reason the release gate has one: a checker that has forgotten
+        # how to say no reports success indistinguishably from a correct
+        # README.
+        run: |
+          cp README.rst README.rst.bak
+          sed -i 's/pvfrd_array_data(/pvfrd_no_such_call(/' README.rst
+          if python3 tools/check_readme_c.py cpp/include \
+               "$(find cpp/build-static -name 'libpvfrd.a' | head -n1)" \
+               > /dev/null 2>&1; then
+            mv README.rst.bak README.rst
+            echo "::error::check_readme_c.py accepted a call that does not exist"
+            exit 1
+          fi
+          mv README.rst.bak README.rst
+          echo "the example check rejects an unknown symbol, as it must"
+
   wasm:
     name: WebAssembly
     runs-on: ubuntu-latest

@@ -129,6 +129,12 @@ no C++ types crossing the boundary:
 
    pvfrd_close(file);
 
+Linking against the shared library needs nothing else. Linking against the
+static one needs the C++ runtime and libm named explicitly -- ``-lstdc++ -lm``
+on GCC and Clang -- because a static archive carries no link dependencies of
+its own. CI compiles and links the example above on every push, so if it is
+wrong here it is wrong in a way that reddens a build.
+
 Opening a file parses the mesh and indexes the result blocks; a step's values
 are parsed when that step is first asked for, so reading one time step of a
 many-step file does not pay for the rest. ``pvfrd_open_memory`` takes bytes you
