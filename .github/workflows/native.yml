@@ -272,18 +272,18 @@ jobs:
           CIBW_ARCHS_MACOS: "x86_64 arm64"
           CIBW_ARCHS_WINDOWS: AMD64
           CIBW_ENVIRONMENT_MACOS: MACOSX_DEPLOYMENT_TARGET=10.15
-          # Checks the property only a wheel can have: that the library inside
-          # it loads on the machine the wheel targets, and that it is the
-          # bundled one rather than something else on the loader path. The
-          # correctness of that library is the cmake job's business.
+          # Checks the properties only a wheel can have: that the library
+          # inside it loads on the machine the wheel targets, that it is the
+          # bundled one rather than something else on the loader path, and
+          # that it can read a real file through the public entry point.
+          #
+          # The last of those matters more than it looks. The gtest tier
+          # builds its own library with its own flags; this is the only job
+          # that exercises the artefact users will actually install, and
+          # "the .so loaded" and "the .so works" are different claims.
           CIBW_TEST_REQUIRES: ""
           CIBW_TEST_COMMAND: >
-            python -c
-            "import pyvista_frd, pathlib;
-            p = pathlib.Path(pyvista_frd.library_path());
-            assert p.exists(), p;
-            assert 'pyvista_frd' in p.parts, f'loaded {p}, not the bundled library';
-            print('native core loaded from', p)"
+            python {project}/tools/check_wheel.py {project}/tests/fixtures/mesh.frd
 
       - uses: actions/upload-artifact@v4
         with:
