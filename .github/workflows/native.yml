@@ -234,7 +234,24 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, ubuntu-24.04-arm, macos-latest, windows-latest]
+        # One runner per architecture, including both macOS architectures,
+        # rather than cross-compiling x86_64 on the arm64 runner. cibuildwheel
+        # cannot run a wheel's tests when it cross-compiles, so a
+        # cross-compiled wheel ships having only been built -- and the wheel
+        # job's test is the only one that touches the artefact users install.
+        include:
+          - os: ubuntu-latest
+          - os: ubuntu-24.04-arm
+          - os: macos-13 # Intel
+            macos_archs: x86_64
+            macos_env: MACOSX_DEPLOYMENT_TARGET=10.15
+          - os: macos-latest # Apple silicon
+            macos_archs: arm64
+            # 11.0 is the first macOS that runs on Apple silicon, so it is the
+            # floor whether or not it is stated. Forcing the Intel floor of
+            # 10.15 here would be asking for a target that cannot exist.
+            macos_env: MACOSX_DEPLOYMENT_TARGET=11.0
+          - os: windows-latest
 
     steps:
       - uses: actions/checkout@v4
@@ -243,7 +260,14 @@ jobs:
           fetch-depth: 0
 
       - name: Build wheels
-        uses: pypa/cibuildwheel@v2.21.3
+        # v4, not the v2 this started on. cibuildwheel ships a constraints
+        # file for the build environment, and 2.21.3's pinned
+        # `packaging==24.1` -- which setuptools 77 cannot use to read a PEP 639
+        # license expression, and which no amount of pinning in
+        # build-system.requires can override, because a constraint outranks a
+        # requirement. The wheel jobs failed with ResolutionImpossible until
+        # this moved. 2.23.3 onward pin packaging 25.
+        uses: pypa/cibuildwheel@v4.2.0
         env:
           # One wheel per platform, not one per interpreter: the bundled
           # library is loaded through ctypes and carries no CPython ABI, and
@@ -269,9 +293,9 @@ jobs:
           # binds today. Check that before moving the floor, not the source.
           CIBW_MANYLINUX_X86_64_IMAGE: manylinux_2_28
           CIBW_MANYLINUX_AARCH64_IMAGE: manylinux_2_28
-          CIBW_ARCHS_MACOS: "x86_64 arm64"
+          CIBW_ARCHS_MACOS: ${{ matrix.macos_archs || 'auto' }}
           CIBW_ARCHS_WINDOWS: AMD64
-          CIBW_ENVIRONMENT_MACOS: MACOSX_DEPLOYMENT_TARGET=10.15
+          CIBW_ENVIRONMENT_MACOS: ${{ matrix.macos_env }}
           # Checks the properties only a wheel can have: that the library
           # inside it loads on the machine the wheel targets, that it is the
           # bundled one rather than something else on the loader path, and
@@ -280,7 +304,9 @@ jobs:
           # The last of those matters more than it looks. The gtest tier
           # builds its own library with its own flags; this is the only job
           # that exercises the artefact users will actually install, and
-          # "the .so loaded" and "the .so works" are different claims.
+          # "the .so loaded" and "the .so works" are different claims. It runs
+          # for every wheel because every wheel is built on its own
+          # architecture -- see the matrix above.
           CIBW_TEST_REQUIRES: ""
           CIBW_TEST_COMMAND: >
             python {project}/tools/check_wheel.py {project}/tests/fixtures/mesh.frd
