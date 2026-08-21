@@ -1,23 +1,14 @@
-/* Quantities derived from a 6-component tensor: equivalent stress/strain and
- * the principal values.
+/* Quantities derived from a 6-component tensor. Two standards of agreement
+ * apply, and the difference is not cosmetic:
  *
- * Two different standards of agreement apply here, and the difference is not
- * cosmetic:
- *
- *   von Mises   a closed-form expression. Written in the same association
- *               order as the reference implementation's NumPy expression, and
- *               compiled with floating-point contraction off, it is
- *               bit-identical. The conformance suite asserts equality, not a
- *               tolerance, and that assertion is what would catch a
- *               well-meaning "simplification" of the expression below.
- *
- *   principals  eigenvalues of a symmetric 3x3. The reference gets these from
- *               LAPACK. Reproducing LAPACK's last bit is not a goal that can
- *               be met, so this uses cyclic Jacobi -- which is backward
- *               stable and, for a 3x3, converges in a handful of sweeps -- and
- *               the conformance suite states a relative tolerance instead.
- *               doc/divergences.md records the measured band.
- */
+ *   von Mises   closed form, in the reference's NumPy association order and
+ *               with contraction off, so it is bit-identical. The conformance
+ *               suite asserts equality, which is what catches a well-meaning
+ *               "simplification" of the expression below.
+ *   principals  eigenvalues of a symmetric 3x3, which the reference takes
+ *               from LAPACK. Matching LAPACK's last bit is not achievable, so
+ *               this is cyclic Jacobi against a relative tolerance;
+ *               doc/divergences.md records the measured band. */
 
 #include <algorithm>
 #include <cmath>
@@ -28,16 +19,13 @@
 namespace pvfrd {
 namespace {
 
-/* The reference writes `x**2`, which NumPy evaluates as a multiplication.
- * Spelled out so no one is tempted to reach for std::pow, which is not
- * required to be correctly rounded and would break the equality assertion. */
+/* Not std::pow, which is not required to be correctly rounded. */
 inline double sq(double x) {
   return x * x;
 }
 
-/* The shared half of both equivalents. Kept in one place so the stress and
- * strain forms cannot drift apart in their association order, which is the
- * only thing making either of them reproducible. */
+/* Shared, so the stress and strain forms cannot drift apart in association
+ * order -- the only thing making either reproducible. */
 inline double deviatoric_sum(const double *t) {
   const double xx = t[0], yy = t[1], zz = t[2];
   const double xy = t[3], yz = t[4], zx = t[5];
@@ -57,16 +45,13 @@ void von_mises_stress(const double *tensor, size_t n, double *mises, double *sig
     const double value = std::sqrt(0.5 * deviatoric_sum(t));
     mises[i] = value;
     const double trace = t[0] + t[1] + t[2];
-    /* `np.where(trace != 0, np.sign(trace) * vmises, vmises)`: an exactly
-     * zero trace keeps the unsigned magnitude rather than being multiplied
-     * by a zero sign. */
+    /* `np.where(trace != 0, np.sign(trace) * vmises, vmises)`. */
     signed_mises[i] = (trace != 0.0) ? sign_of(trace) * value : value;
   }
 }
 
 void von_mises_strain(const double *tensor, size_t n, double *mises, double *signed_mises) {
-  /* sqrt(2)/3 computed once, as the reference does, and applied after the
-   * square root rather than folded into the sum. */
+  /* Once, and after the square root, as the reference does. */
   const double k = std::sqrt(2.0) / 3.0;
   for (size_t i = 0; i < n; ++i) {
     const double *t = tensor + i * 6;
@@ -81,39 +66,27 @@ void principal_values(const double *t, double *ps3, double *ps2, double *ps1) {
   /* Symmetric matrix from the CalculiX ordering (xx, yy, zz, xy, yz, zx). */
   double a[3][3] = {{t[0], t[3], t[5]}, {t[3], t[1], t[4]}, {t[5], t[4], t[2]}};
 
-  /* Cyclic Jacobi. Twelve sweeps is far more than a 3x3 ever needs -- it
-   * converges quadratically and in practice finishes in four -- but the bound
-   * is here so a pathological input cannot spin.
-   *
-   * Both thresholds below are scaled by the matrix, not fixed. An earlier
-   * version stopped on `off == 0.0` and skipped rotations below 1e-300, which
-   * are conditions the off-diagonals reach only by luck: measured over a
-   * million random tensors, 21% of them ran all twelve sweeps and the mean
-   * was 6.9. The extra sweeps were rotations through angles too small to
-   * change a diagonal entry in floating point -- work whose result was
-   * discarded by rounding.
-   *
-   * Replacing them with the textbook criteria is worth 1.65x on this function
-   * and about 14% of a whole read, and it is not a trade: the outputs are
-   * bit-identical to the previous implementation on a million random tensors
-   * and on the degenerate, denormal, infinite and NaN cases pinned in
-   * PrincipalValuesTest. Nothing here is an approximation that was loosened. */
+  /* Cyclic Jacobi; a 3x3 finishes in about four sweeps, and the bound stops a
+   * pathological input spinning. Both thresholds below are scaled by the
+   * matrix. An earlier version stopped on `off == 0.0` and skipped rotations
+   * below 1e-300, conditions the off-diagonals reach only by luck: 21% of a
+   * million random tensors ran all twelve sweeps, rotating through angles too
+   * small to move a diagonal entry. The textbook criteria are worth 1.65x
+   * here and 14% of a read, at no accuracy cost -- outputs are bit-identical
+   * over that million and over the degenerate, denormal, infinite and NaN
+   * cases pinned in PrincipalValuesTest. */
   static const double eps = 2.220446049250313e-16; /* DBL_EPSILON */
 
   for (int sweep = 0; sweep < 12; ++sweep) {
     const double off = std::fabs(a[0][1]) + std::fabs(a[0][2]) + std::fabs(a[1][2]);
     const double diag = std::fabs(a[0][0]) + std::fabs(a[1][1]) + std::fabs(a[2][2]);
-    /* Converged: the off-diagonal mass can no longer move a diagonal entry.
-     * Written `<=` so an all-zero matrix stops on the first look. */
+    /* `<=` so an all-zero matrix stops on the first look. */
     if (off <= eps * diag) break;
 
     for (int p = 0; p < 2; ++p) {
       for (int q = p + 1; q < 3; ++q) {
         if (a[p][q] == 0.0) continue;
-        /* Skip a rotation that cannot change the matrix: when the
-         * off-diagonal is negligible against both diagonals, the update
-         * would be a no-op in floating point and the angle is ill
-         * conditioned. */
+        /* A no-op in floating point, and an ill-conditioned angle. */
         const double scale = std::fabs(a[p][p]) + std::fabs(a[q][q]);
         if (std::fabs(a[p][q]) <= scale * eps) continue;
 
@@ -144,9 +117,7 @@ void principal_values(const double *t, double *ps3, double *ps2, double *ps1) {
 
   double e[3] = {a[0][0], a[1][1], a[2][2]};
   std::sort(e, e + 3);
-  /* Ascending, matching np.linalg.eigvalsh: PS3 is the smallest principal
-   * value and PS1 the largest, which is the convention CalculiX GraphiX
-   * uses and the reference reader follows. */
+  /* Ascending, as np.linalg.eigvalsh and CalculiX GraphiX have it. */
   *ps3 = e[0];
   *ps2 = e[1];
   *ps1 = e[2];

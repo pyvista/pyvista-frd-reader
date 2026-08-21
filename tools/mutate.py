@@ -206,11 +206,11 @@ MUTANTS = [
         expected_catcher='test_solver_written_files_survive_a_round_trip_byte_for_byte',
     ),
     Mutant(
-        name='writer-value-not-narrowed',
+        name='writer-narrows-through-float32',
         path='cpp/src/document.cpp',
-        old='  const double value = as_written(value_in);',
-        new='  const double value = value_in;',
-        expected_catcher='test_binary_converted_to_ascii_matches_what_calculix_wrote',
+        old='std::snprintf(buffer, sizeof(buffer), "%12.5E", value);',
+        new='std::snprintf(buffer, sizeof(buffer), "%12.5E", double(float(value)));',
+        expected_catcher='test_converted_ascii_is_the_double_rounded_not_the_float',
     ),
     Mutant(
         name='writer-faces-wrap-at-nine',

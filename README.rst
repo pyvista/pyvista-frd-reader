@@ -68,6 +68,11 @@ reader appends the derived arrays PyVista's reader appends:
 Elements with the wrong number of nodes, or a type nothing recognises, raise
 ``pyvista.InvalidMeshWarning`` naming the line they were found on.
 
+The grid's cell arrays are handed to VTK in **32-bit** storage whenever the
+mesh fits in it, which is any file short of two billion connectivity entries.
+``vtkCellArray`` keeps the width it is given, so that halves what the mesh
+costs to hold for as long as it is held. Points stay ``float64``.
+
 What it writes
 --------------
 
@@ -89,9 +94,11 @@ The writer is graded on reproducing CalculiX's bytes, not on agreeing with this
 library's own reader: a document read and emitted again is the input **byte for
 byte**, over 1,111 external FRD files. That gate turned up a second dialect of
 the format shipped with CalculiX GraphiX, and the fact that CalculiX renders
-its ASCII values through single precision. Separately, CalculiX itself reads
-files this library writes and produces byte-identical results from them. The
-method and its limits are in `doc/writing.md <doc/writing.md>`_.
+its ASCII values through single precision -- which this library deliberately
+does not, so a *converted* file carries the full double and differs from
+CalculiX's own text at a rounding tie. Separately, CalculiX itself reads files
+this library writes and produces byte-identical results from them. The method
+and its limits are in `doc/writing.md <doc/writing.md>`_.
 
 Speed
 -----

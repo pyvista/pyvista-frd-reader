@@ -1,24 +1,15 @@
-/* The writing half of the C ABI.
+/* The writing half of the C ABI. Two entry points with different guarantees,
+ * because only one is checked against CalculiX's own bytes:
  *
- * Two entry points with quite different guarantees, and the difference is
- * worth being explicit about because only one of them is checked against
- * CalculiX's own bytes.
- *
- *   pvfrd_rewrite_memory   reads a document and emits it again. With
- *                          PVFRD_FORMAT_KEEP this is the identity over every
- *                          FRD file this project could find, so the emitter's
- *                          field layout is checked against files nobody here
- *                          wrote. That is the gate.
- *
- *   pvfrd_writer_*         builds a document from a mesh and some arrays.
- *                          The records go through the same emitter, so the
- *                          gate covers them; what it cannot cover is the
- *                          header lines, which have no original to be
- *                          compared against. Those are checked by writing a
- *                          file and having CalculiX read it back -- see
- *                          doc/writing.md, which also records what that does
- *                          and does not establish.
- */
+ *   pvfrd_rewrite_memory   re-emits a document. With PVFRD_FORMAT_KEEP it is
+ *                          the identity over every FRD file this project could
+ *                          find, so the field layout is graded against files
+ *                          nobody here wrote. That is the gate.
+ *   pvfrd_writer_*         builds a document from a mesh. Its records go
+ *                          through the same emitter; its header lines have no
+ *                          original to compare against, and are checked by
+ *                          having CalculiX read the result back. See
+ *                          doc/writing.md for what that does not establish. */
 
 #include <algorithm>
 #include <cstdio>

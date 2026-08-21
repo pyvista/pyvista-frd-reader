@@ -20,6 +20,15 @@ the places where the instrument was wrong rather than the reader.
 | **Total** | **1,766** | **1,071** | **1** | **694** | **0** |
 
 No file in either corpus produced a different answer from PyVista's reader.
+Re-run after the writer and the 32-bit mesh storage landed, over the same 1,766
+files, with the same result: **832 / 1 / 6** and **239 / 0 / 688**.
+
+The writer is swept over the same corpus by `tools/sweep_rewrite.py`, which
+reads each file and emits it again: **1,111 identical, 655 passthrough, 0
+differing.** "Passthrough" is a file no FRD reader accepts — the loudspeaker
+measurements and the rest — which the rewriter hands back unchanged. The two
+sweeps are not the same claim: this one says two readers agree about a file,
+that one says the file's bytes survive a round trip. `doc/writing.md` has it.
 
 **"Declined by both" needs care, and an earlier version of this document did
 not give it any.** It means both readers refused the file in the same way —

@@ -338,6 +338,27 @@ def test_arrays_outlive_the_reader(mock_frd: Path):
     np.testing.assert_allclose(mesh.point_data['STRESS_PS1'], 30.0)
 
 
+def test_the_mesh_is_stored_in_32_bit_indices(mock_frd: Path):
+    """A mesh that fits in 32 bits is held in 32 bits, halving what it costs.
+
+    ``CellArray.from_arrays`` would promote both arrays to ``pv.ID_TYPE``, so
+    this is asserted on the storage rather than on the dtype alone.
+    """
+    mesh = FRDReader(mock_frd).read()
+    assert not mesh.GetCells().IsStorage64Bit()
+    assert mesh.offset.dtype == np.int32
+    assert mesh.cell_connectivity.dtype == np.int32
+
+
+def test_the_cells_outlive_the_reader(mock_frd: Path):
+    """The cell arrays are handed to VTK without a copy, so they must be ours."""
+    mesh = FRDReader(mock_frd).read()
+    import gc
+
+    gc.collect()
+    assert mesh.extract_surface(algorithm='dataset_surface').n_cells == 6
+
+
 def test_missing_file_raises_what_pyvista_raises():
     """A missing file is the operating system's news, not this library's.
 

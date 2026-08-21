@@ -61,7 +61,7 @@ __all__ = [
     'library_path',
 ]
 
-ABI_VERSION = 1
+ABI_VERSION = 2
 """ABI this binding speaks. A library reporting anything else is refused."""
 
 WEDGE_ASIS = 0
