@@ -153,6 +153,12 @@ pvfrd_status open_from_buffer(std::string buffer, const pvfrd_open_options *opti
 
 }  // namespace
 
+namespace pvfrd {
+void set_thread_error(std::string message) {
+  record(std::move(message));
+}
+}  // namespace pvfrd
+
 extern "C" {
 
 uint32_t pvfrd_abi_version(void) {

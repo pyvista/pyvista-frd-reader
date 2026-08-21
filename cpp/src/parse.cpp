@@ -262,6 +262,13 @@ double step_time_of(std::string_view stripped) {
 
 }  // namespace
 
+bool element_point_count(int64_t code, uint32_t *out) {
+  CellSpec spec{0, 0};
+  if (!cell_spec_for(code, &spec)) return false;
+  *out = spec.n_points;
+  return true;
+}
+
 Document::Document(std::string buffer, pvfrd_open_options options)
     : buffer_(std::move(buffer)), options_(options) {}
 

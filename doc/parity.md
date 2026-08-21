@@ -8,22 +8,41 @@ its author knew to author. A green sweep over it says the two readers agree on
 the files we wrote.
 
 This document records what happened when the same comparison was pointed at
-**1,615 FRD files this project did not write**, and what it found — including
-the two places where the instrument was wrong rather than the reader.
+**1,766 FRD files this project did not write**, and what it found — including
+the places where the instrument was wrong rather than the reader.
 
 ## Result
 
-| Corpus | Files | Agree, bit for bit | Declined by both | Divergences |
-| --- | ---: | ---: | ---: | ---: |
-| CalculiX regression suite, solved | 688 | 654 | 34 | **0** |
-| GitHub code search, `extension:frd` | 927 | 239 | 688 | **0** |
-| **Total** | **1,615** | **893** | **722** | **0** |
+| Corpus | Files | Agree, bit for bit | Read only here | Declined by both | Divergences |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| CalculiX regression suite | 839 | 832 | 1 | 6 | **0** |
+| GitHub code search, `extension:frd` | 927 | 239 | 0 | 688 | **0** |
+| **Total** | **1,766** | **1,071** | **1** | **694** | **0** |
 
 No file in either corpus produced a different answer from PyVista's reader.
 
-"Declined by both" is not a shrug. It means both readers refused the file *in
-the same way* — same exception type, same message — and it is checked, not
-assumed. It covers two quite different populations, described below.
+**"Declined by both" needs care, and an earlier version of this document did
+not give it any.** It means both readers refused the file in the same way —
+same exception type, same message — which is a real result only when the file
+genuinely has no mesh in it. It is not a licence to file every refusal as a
+success, and reading it that way is how a missing half of the format went
+unnoticed here for a while. The 694 break down as:
+
+- **688 files that are not CalculiX FRD at all.** The extension is shared with
+  loudspeaker measurements and at least one fractal renderer. Declining these
+  is the correct answer and the interesting half of the GitHub corpus.
+- **6 files CalculiX wrote with no mesh in them.** Checked individually rather
+  than counted: `spring6.frd` declares `0` nodes and `0` elements in its own
+  headers, two `.rfn.frd` files are five bytes containing only the ` 9999`
+  trailer, and three more are 86-byte headers with no blocks. A file that
+  states it has no nodes has no mesh, and both readers say so.
+
+**"Read only here" is the column that used to be missing.** One file —
+`beampdouble.frd.ref`, which CalculiX publishes and reads back as a submodel
+input — is binary FRD. PyVista's reader parses FRD as text, so it answers `No
+nodes found in FRD file`; this library reads its 261 points and 32 cells. See
+`doc/binary.md` for how that decode is graded, since the oracle cannot grade
+it.
 
 ## The corpora, and why these two
 
@@ -33,20 +52,32 @@ The strongest available evidence, because these files were written by the
 program that defines the format. There is no independent FRD specification;
 FRD is what `ccx` writes and `cgx` reads.
 
-The suite ships 673 input decks and only four `.frd` files, because it grades
-itself on `.dat` output. Running the decks turns it into the largest
-authoritative FRD corpus that exists:
+`tools/fetch_corpus.py --source calculix` builds it, from three sources rather
+than the one an earlier version of this document described:
 
-- source: `http://www.dhondt.de/ccx_2.23.test.tar.bz2` and
-  `ccx_2.23.fluidtest.tar.bz2`
-- solved with CalculiX 2.22, `OMP_NUM_THREADS=1`, 180 s per deck
-- 673 deck runs: 620 completed, 31 hit the timeout, 22 exited non-zero (the
-  2.23 decks against a 2.22 solver; three of those were solver segfaults)
-- **688 FRD files, 251 MB**
+- **216 FRD files the suite ships.** Mostly `*.frd.ref`, the reference output
+  each deck is graded against. They cost nothing to collect and were being
+  ignored entirely, which is how the only binary FRD CalculiX publishes stayed
+  invisible to every sweep.
+- **595 written by running the decks**, `ccx -i <job>` in the directory the
+  deck lives in.
+- **28 written by running the decks under a name that is not the deck's.**
+  `<job>.net.frd` for a network analysis, `<job>.rfn.frd` for a refined mesh.
+  Collecting only `<job>.frd` discarded these, and they are not a random
+  sample: the extra outputs come from different code paths in `frd.c` than the
+  main one.
 
-The 53 decks that did not complete are a coverage gap and are named here
-rather than rounded away: whatever those decks would have exercised is not in
-this result.
+Pinned to `http://www.dhondt.de/ccx_2.22.test.tar.bz2` and solved with
+CalculiX 2.22, so the suite and the solver are the same release. **839 FRD
+files, 125 MB.** Of 610 decks, 599 wrote at least one FRD and 11 wrote none
+— no FRD requested, or a solver error.
+
+The per-deck bound is 900 s and nothing reached it. The previous run used
+180 s, and 23 decks that hit it left **truncated** FRD files behind that were
+collected as though they were complete CalculiX output. A partial file is
+indistinguishable from a small one; the bound is now generous enough that
+reaching it means the deck really is long-running, and a deck that reaches it
+has its output deleted rather than kept.
 
 ### GitHub
 
@@ -102,19 +133,24 @@ still be *named* `generated`.
 Worth stating rather than leaving as an asymmetry someone trips over.
 
 CalculiX 2.22 answers `*ERROR reading *ELEMENT: C3D5 is an unknown element
-type` and stops. That is not a quirk of one deck: none of the 673 official
-2.23 decks mentions `C3D5` or `C3D13`, and a census of the 688 solved files
-finds **12 distinct cell types across 295,626 cells and no pyramid among
-them**:
+type` and stops. That is not a quirk of one deck: none of the 610 official
+decks mentions `C3D5` or `C3D13`, and a census of the 839 files finds **11
+distinct cell types across 188,951 cells and no pyramid among them**:
 
 | cell type | cells | files | | cell type | cells | files |
 | --- | ---: | ---: | --- | --- | ---: | ---: |
-| `HEXAHEDRON` | 138,710 | 193 | | `QUADRATIC_EDGE` | 1,641 | 128 |
-| `WEDGE` | 64,148 | 16 | | `QUADRATIC_WEDGE` | 1,306 | 5 |
-| `QUADRATIC_HEXAHEDRON` | 56,255 | 425 | | `QUAD` | 329 | 8 |
-| `QUADRATIC_TETRA` | 24,408 | 95 | | `LINE` | 294 | 135 |
-| `TRIANGLE` | 3,894 | 13 | | `QUADRATIC_TRIANGLE` | 126 | 5 |
-| `QUADRATIC_QUAD` | 2,694 | 38 | | `TETRA` | 1,821 | 8 |
+| `HEXAHEDRON` | 93,512 | 228 | | `LINE` | 289 | 132 |
+| `QUADRATIC_HEXAHEDRON` | 64,772 | 429 | | `QUADRATIC_TRIANGLE` | 64 | 2 |
+| `QUADRATIC_TETRA` | 18,413 | 23 | | `WEDGE` | 42 | 4 |
+| `TRIANGLE` | 7,991 | 21 | | `QUAD` | 8 | 2 |
+| `QUADRATIC_QUAD` | 1,479 | 38 | | | | |
+| `QUADRATIC_WEDGE` | 1,292 | 3 | | | | |
+| `QUADRATIC_EDGE` | 1,089 | 122 | | | | |
+
+Linear `TETRA` is absent from this corpus, which the previous run did contain.
+That is a difference between the two corpora rather than a change in the
+reader, and it is the sort of thing a census restated from memory would have
+carried over silently.
 
 So the PY5/PY13 support added by [pyvista#8936] is the one corner of the
 element table that **no file in either corpus corroborates**. Whatever writes
@@ -138,20 +174,21 @@ value of every array. Two standards, the same two the conformance suite uses:
   32 ulp of the *tensor's* magnitude, not the eigenvalue's. See
   `doc/divergences.md` for why that distinction is the whole point.
 
-A file gets one of five verdicts. `agree` and `differ` are the obvious two.
+A file gets one of six verdicts. `agree` and `differ` are the obvious two.
 `both-decline` means both readers refused it in the same words. `both-refuse`
 means both refused it in *different* words — the ragged-block case, where the
 difference in wording is itself documented in `doc/divergences.md`; neither
-reader stores a short row, which is the part that matters. `error` is reserved
-for a fault in the sweep, so that a defect in the instrument can never be
-reported as a property of the reader. Neither corpus produced a `both-refuse`
-or an `error`; the fixture corpus produces one of each, which is what keeps
-those branches exercised.
+reader stores a short row, which is the part that matters. `beyond-oracle`
+means this library read the file and the oracle could not, which is not an
+agreement and must never be counted as one: it is the verdict for binary FRD,
+and the file it applies to has to be graded some other way. `error` is
+reserved for a fault in the sweep, so that a defect in the instrument can
+never be reported as a property of the reader.
 
-The sweep exits non-zero on `differ`, `error`, or a file only one reader could
-read. It exits zero on the two agreements, because a corpus that legitimately
-contains files neither reader should accept — which the GitHub one very much
-does — would otherwise make a clean run indistinguishable from a broken one.
+The sweep exits non-zero on `differ` and on `error`. It exits zero on the
+agreements and on `beyond-oracle`, because a corpus that legitimately contains
+files neither reader should accept — which the GitHub one very much does —
+would otherwise make a clean run indistinguishable from a broken one.
 
 ## What the sweep found
 
@@ -245,7 +282,7 @@ control: normalising `mock_crlf.frd` fails the new test while
 
 ## Performance
 
-`tools/bench_corpus.py`, over the 688-file CalculiX corpus, 251 MB, best of
+`tools/bench_corpus.py`, over the 839-file CalculiX corpus, 125 MB, best of
 three per file.
 
 Both readers are driven to the same end state — every array of every step
@@ -256,63 +293,75 @@ Timing "open" against "parse" would be measuring work not yet done.
 
 | | PyVista | this library |
 | --- | ---: | ---: |
-| total, 688 files, 251 MB | 14.59 s | 2.40 s |
+| total, 839 files, 125 MB | 8.72 s | 1.17 s |
 
-**Aggregate 6.08x.** The per-file distribution matters more than the aggregate,
+**Aggregate 7.42x.** The per-file distribution matters more than the aggregate,
 which is dominated by the largest files:
 
 | p0 | p10 | p25 | p50 | p75 | p90 | p100 |
 | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| 0.97x | 1.38x | 1.94x | 3.45x | 6.27x | 8.68x | 39.75x |
+| 0.83x | 1.50x | 3.26x | 5.49x | 7.26x | 9.60x | 37.67x |
 
-- **Slower on 2 of 688 files**, both at 0.97–0.99x. Both are empty files read
-  in 0.02 ms by both readers; at that size the ratio is scheduler noise, not a
-  regression.
-- Files over 1 MB (35 of them): median **5.45x**. `cylfine.frd`, 38.8 MB:
-  2252 ms → 366 ms.
-- Files under 64 KB (552 of them): median **3.40x**.
-- The extreme is `beamnldyeortho.frd` at **39.75x** — 43 KB, 107 ms → 2.7 ms.
-  Many time steps in a small file: the oracle parses every value of every step
-  eagerly, and that is where the deferred approach pays.
+- **Slower on 2 of 839 files.** Both are tiny files where the whole read is
+  scheduler noise, not a regression.
+- Files over 1 MB (24 of them): median **5.25x**.
+- Files under 64 KB (658 of them): median **3.51x**.
 
 The README's two-file table is a quick check on a machine; this is the number
 to quote.
 
 ## Reproducing it
 
+Everything below is a command in this repository. The previous version of this
+section had a `# ... solve each .inp ...` in the middle of it, which is the
+part that was hardest to get right and the part that was not written down.
+
 ```bash
-# CalculiX corpus: fetch, solve, sweep. Needs ccx on PATH.
-curl -O http://www.dhondt.de/ccx_2.23.test.tar.bz2
-tar -xjf ccx_2.23.test.tar.bz2 -C external-corpus/
-# ... solve each .inp with `ccx -i <deck>` ...
-python tools/sweep_external.py external-corpus/ --json sweep.json
+# CalculiX corpus: fetch the pinned suite, run every deck, collect every FRD.
+# Needs ccx 2.22. Takes a while; nothing else should touch the tree meanwhile.
+python tools/fetch_corpus.py --source calculix --ccx ccx
 
 # GitHub corpus: needs an authenticated `gh`.
-python tools/fetch_corpus.py --source github --out external-corpus
+python tools/fetch_corpus.py --source github
+
+# Parity against PyVista, and the writer's byte-for-byte gate.
+python tools/sweep_external.py external-corpus/calculix --json sweep.json
 python tools/sweep_external.py external-corpus/github --json gh-sweep.json
+python tools/sweep_rewrite.py  external-corpus --json rewrite.json
 
 # Timings
-python tools/bench_corpus.py external-corpus/ --json bench.json
+python tools/bench_corpus.py external-corpus/calculix --json bench.json
 ```
 
 ## What this does not establish
 
-Worth stating plainly, because a number like 1,615 invites more weight than it
+Worth stating plainly, because a number like 1,766 invites more weight than it
 can carry.
 
 - **It is agreement, not correctness.** The oracle is PyVista's reader. Where
   both readers are wrong about the format in the same way, this sweep is
   silent by construction, and no amount of corpus fixes that. The hand-computed
-  values in the gtest tier and the fixtures taken from CalculiX itself are what
-  carry that half.
+  values in the gtest tier, the fixtures taken from CalculiX itself, and the
+  byte-for-byte writer gate in `doc/writing.md` are what carry that half.
+- **The oracle cannot see binary FRD at all.** For the one binary file in the
+  corpus the sweep has no opinion, and for the twelve binary fixtures this
+  project generates it has none either. Those are graded against CalculiX's
+  own ASCII encoding of the same computation instead.
 - **The two corpora are not independent of each other.** Both consist mostly of
   files written by `ccx`, so a CalculiX quirk that both readers mishandle is
   present in both.
-- **53 decks did not solve**, so their FRD output was never compared.
+- **11 decks wrote no FRD**, so whatever they would have exercised is not here.
 - **The GitHub search caps at 1,000 results.** It is a sample of what GitHub
   will admit to having, not a census of FRD files in the world.
 - **It is one run on one machine.** The timings especially are a property of
   this hardware; the ratios travel better than the absolutes.
 - **Two element types are untouched by it.** PY5 and PY13 appear nowhere in
   either corpus, for the reason above. Every other supported type is covered
-  by both hand-written and solver-written fixtures.
+  by both hand-written and solver-written fixtures. Linear `TETRA` is covered
+  by fixtures but, in this run of the corpus, by no external file.
+- **A green sweep says nothing about the files that are not in it.** The
+  corpus grew by 40% between two runs of the same tool, and the growth was not
+  random: it was the shipped reference outputs, the differently-named deck
+  outputs, and the files a 180-second timeout had been truncating. Each of
+  those was invisible, and each was invisible in a way that made the previous
+  result look complete.

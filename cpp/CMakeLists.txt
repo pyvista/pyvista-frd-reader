@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.16)
 project(pvfrd LANGUAGES CXX)
 
 option(PVFRD_BUILD_SHARED "Build a shared library (needed for the ctypes binding)" ON)
-option(PVFRD_BUILD_TOOLS "Build the frd_dump conformance tool" ON)
+option(PVFRD_BUILD_TOOLS "Build the frd_dump and frd_rewrite tools" ON)
 option(PVFRD_BUILD_TESTS "Build the gtest suite" OFF)
 option(PVFRD_BUILD_FUZZERS "Build libFuzzer targets (Clang only)" OFF)
 
@@ -17,7 +17,7 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 set(CMAKE_CXX_VISIBILITY_PRESET hidden)
 set(CMAKE_VISIBILITY_INLINES_HIDDEN ON)
 
-set(PVFRD_SOURCES src/parse.cpp src/derived.cpp src/api.cpp)
+set(PVFRD_SOURCES src/parse.cpp src/derived.cpp src/document.cpp src/write.cpp src/api.cpp)
 
 if(PVFRD_BUILD_SHARED)
   add_library(pvfrd SHARED ${PVFRD_SOURCES})
@@ -58,6 +58,15 @@ if(PVFRD_BUILD_TOOLS)
   add_executable(frd_dump tools/frd_dump.cpp)
   target_link_libraries(frd_dump PRIVATE pvfrd)
   target_include_directories(frd_dump PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+
+  # Compiled against the sources rather than the shared library: parse_raw and
+  # emit_raw are internal, and putting them in the ABI to make a tool build
+  # would be letting the tool design the interface.
+  add_executable(frd_rewrite tools/frd_rewrite.cpp ${PVFRD_SOURCES})
+  target_include_directories(frd_rewrite PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/third_party)
 endif()
 
 if(PVFRD_BUILD_TESTS)
@@ -83,6 +92,7 @@ if(PVFRD_BUILD_TESTS)
     tests/test_text.cpp
     tests/test_derived.cpp
     tests/test_binary.cpp
+    tests/test_write.cpp
     tests/test_parse.cpp
     tests/test_api.cpp
     tests/test_exceptions.cpp

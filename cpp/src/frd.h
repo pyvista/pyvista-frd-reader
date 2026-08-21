@@ -17,6 +17,21 @@
 
 namespace pvfrd {
 
+/* How many nodes an element of CalculiX type `code` has, or false if this
+ * reader does not know the type.
+ *
+ * Shared with document.cpp because a binary element record cannot be stepped
+ * over without it -- the next record's offset is this one's node count -- and
+ * two tables that had to agree about that would be a latent way for a reader
+ * and a writer to disagree about the same file. */
+bool element_point_count(int64_t code, uint32_t *out);
+
+/* Record the reason for a failure that has no reader to hang it on, so
+ * pvfrd_last_error(NULL) can report it. Shared with the writing half, whose
+ * failures -- a cell type with no CalculiX equivalent -- are exactly the kind
+ * a status code alone cannot explain. */
+void set_thread_error(std::string message);
+
 /* Where a result block's data lives, so a step can be parsed on demand.
  *
  * The alternative -- parsing every value at open -- is what the reference

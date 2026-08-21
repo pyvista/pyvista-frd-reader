@@ -30,7 +30,9 @@ from ._capi import NativeUnavailableError as NativeUnavailableError
 from ._capi import library_path as library_path
 from .reader import ELEMENT_TYPE_NAMES as ELEMENT_TYPE_NAMES
 from .reader import FRDReader as FRDReader
+from .reader import convert as convert
 from .reader import read as read
+from .reader import write as write
 
 try:
     from ._version import __version__
@@ -53,6 +55,8 @@ __all__ = [
     'NativeFile',
     'NativeUnavailableError',
     '__version__',
+    'convert',
     'library_path',
     'read',
+    'write',
 ]

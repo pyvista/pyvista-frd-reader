@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import dataclass
+import os
 from pathlib import Path
 import shutil
 import subprocess
@@ -190,6 +191,97 @@ MUTANTS = [
         ),
         expected_catcher='test_warning_text_is_exact',
     ),
+    # --- the writer ---------------------------------------------------------
+    #
+    # These are graded by tests/test_writer.py, whose strongest claim is that a
+    # solver-written file read and emitted again is the same bytes. Out of tree
+    # that gate runs over 1,111 external files; the mutants below are the
+    # evidence that it is looking, because a gate at 100% on its first run is
+    # indistinguishable from one that copies its input.
+    Mutant(
+        name='writer-value-precision',
+        path='cpp/src/document.cpp',
+        old='std::snprintf(buffer, sizeof(buffer), "%12.5E", value);',
+        new='std::snprintf(buffer, sizeof(buffer), "%12.6E", value);',
+        expected_catcher='test_solver_written_files_survive_a_round_trip_byte_for_byte',
+    ),
+    Mutant(
+        name='writer-value-not-narrowed',
+        path='cpp/src/document.cpp',
+        old='  const double value = as_written(value_in);',
+        new='  const double value = value_in;',
+        expected_catcher='test_binary_converted_to_ascii_matches_what_calculix_wrote',
+    ),
+    Mutant(
+        name='writer-faces-wrap-at-nine',
+        path='cpp/src/document.cpp',
+        old='  return width == 5 ? 15 : 10;',
+        new='  return width == 5 ? 15 : 9;',
+        expected_catcher='test_solver_written_files_survive_a_round_trip_byte_for_byte',
+    ),
+    Mutant(
+        name='writer-values-wrap-at-five',
+        path='cpp/src/document.cpp',
+        old='constexpr size_t kValuesPerLine = 6;',
+        new='constexpr size_t kValuesPerLine = 5;',
+        expected_catcher='test_solver_written_files_survive_a_round_trip_byte_for_byte',
+    ),
+    Mutant(
+        name='writer-face-width-assumed',
+        path='cpp/src/document.cpp',
+        old=(
+            '            block.face_width = '
+            '(span % ids.size() == 0) ? span / ids.size() : face_width;'
+        ),
+        new='            block.face_width = face_width;',
+        expected_catcher='test_solver_written_files_survive_a_round_trip_byte_for_byte',
+    ),
+    Mutant(
+        name='writer-faces-split-on-whitespace',
+        path='cpp/src/document.cpp',
+        old='          if (!chunk_fixed_width(data, face_width, &ids)) {',
+        new='          if (true) {',
+        expected_catcher='test_glued_face_ids_survive_the_writer',
+    ),
+    Mutant(
+        name='writer-converts-without-a-terminator',
+        path='cpp/src/document.cpp',
+        old='      out += " -3" + document.newline;',
+        new='      /* mutant: converted blocks get no terminator */',
+        expected_catcher='test_converting_to_ascii_writes_the_terminator_ascii_requires',
+    ),
+    Mutant(
+        name='writer-truncates-array-names',
+        path='cpp/src/write.cpp',
+        old="  return name.size() >= 8 ? name : name + std::string(8 - name.size(), ' ');",
+        new=(
+            "  return name.substr(0, 8) + std::string(name.size() >= 8 ? 0 : 8 - name.size(), ' ');"
+        ),
+        expected_catcher='test_write_then_read_returns_the_same_mesh',
+    ),
+    Mutant(
+        name='writer-reuses-the-readers-permutation',
+        path='cpp/src/write.cpp',
+        old=(
+            '  } else if (code == PVFRD_PE15) {\n'
+            '    take(0, 9);\n    take(12, 15);\n    take(9, 12);'
+        ),
+        new='  } else if (code == PVFRD_PE15) {\n    take(0, 15);',
+        expected_catcher='WriteTest.ReadingBackAWrittenCellRecoversItsConnectivity',
+    ),
+    Mutant(
+        name='writer-hoists-unparsed-lines',
+        path='cpp/src/document.cpp',
+        old=(
+            '          block.items.push_back({-1, record_text});\n'
+            '          continue;\n        }\n\n        /* A record is its'
+        ),
+        new=(
+            '          block.lines.push_back(record_text);\n'
+            '          continue;\n        }\n\n        /* A record is its'
+        ),
+        expected_catcher='test_an_unreadable_line_keeps_its_place_in_the_block',
+    ),
     Mutant(
         name='materialisation-is-eager',
         path='cpp/src/parse.cpp',
@@ -248,8 +340,6 @@ def run_tests(build_dir: Path) -> tuple[bool, list[str]]:
         'PVFRD_LIBRARY': str(library) if library else '',
         'PYTHONPATH': f'{ROOT / "src"}:{ROOT}',
     }
-    import os
-
     environ = {**os.environ, **env}
 
     # Both tiers run to completion rather than stopping at the first red.
@@ -328,6 +418,7 @@ def main() -> int:
     survivors = []
     misattributed = []
 
+    stamps: dict[Path, tuple[float, float]] = {}
     try:
         ok, error = build(build_dir)
         if not ok:
@@ -347,6 +438,23 @@ def main() -> int:
         for mutant in selected:
             source = ROOT / mutant.path
             original = source.read_text()
+            # Remembered now, put back once at the very end -- not between
+            # mutants. Both halves of that matter.
+            #
+            # Putting it back at the end: the test suite refuses to grade a
+            # native library older than the C++ it was built from, and that
+            # check compares mtimes. Restoring identical bytes with a fresh
+            # mtime leaves every command run after a sweep looking like it is
+            # about to grade a stale build, which is a false alarm that
+            # teaches people to ignore a real one.
+            #
+            # Not between mutants: an mtime older than the object file is
+            # exactly what tells `make` there is nothing to do. Restoring it
+            # per mutant meant the next build silently reused the *previous*
+            # mutant's object file, so mutants leaked into one another -- and
+            # the symptom was a mutant reported as killed by a test that does
+            # not test it, which reads as a coincidence rather than as a bug.
+            stamps.setdefault(source, (source.stat().st_atime, source.stat().st_mtime))
             if mutant.old not in original:
                 print(f'{mutant.name:32s} STALE  (its anchor is no longer in {mutant.path})')
                 survivors.append(mutant.name)
@@ -381,6 +489,11 @@ def main() -> int:
         # Rebuild the working tree's own build dir so a sweep does not leave
         # a stale library behind for the next command to grade against.
         run(['cmake', '--build', 'cpp/build', '--parallel'])
+        # Then hand the sources back their original timestamps, so the suite's
+        # staleness check does not fire on a tree whose bytes never changed.
+        # After the rebuild, so the rebuild still sees them as modified.
+        for path, stamp in stamps.items():
+            os.utime(path, stamp)
 
     print()
     if survivors:
