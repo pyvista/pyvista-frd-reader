@@ -74,6 +74,57 @@ does. Vendoring either into an MIT project would be a licensing problem and a
 several-hundred-megabyte one. `tools/fetch_corpus.py` rebuilds them instead, so
 the corpus is reproducible without this repository having to carry it.
 
+## The corpus that did come into the repository
+
+The sweep corpora stay out of tree for licensing reasons, but the reason to
+want them applies to the repository's own fixtures too. Every file under
+`tests/fixtures/elements/` was written by hand, which means it encodes what
+this project *believes* CalculiX writes — and a hand-written fixture graded
+against a hand-written reader can agree perfectly while both are wrong about
+the bytes a real solver emits.
+
+`tools/generate_fixtures.py` closes that loop without touching anyone's
+licence: the input decks are **ours**, written here and MIT like the rest of
+the repository, and the FRD files are what `ccx` produced from them. Twelve
+decks, one element of each supported type, solved with CalculiX 2.22 — 160 KB
+in `tests/fixtures/generated/`, discovered by the same `rglob` as everything
+else, so the entire conformance suite now runs over genuine solver output as
+well. All twelve agree bit for bit. The corpus went from 33 files to 45 and the
+suite from 298 tests to 358.
+
+`tests/test_fixture_bytes.py` requires each of them to carry CalculiX's own
+`1UPGM`/`1UVERSION` banner, because nothing else in the suite would notice if
+one were quietly replaced by an authored file — after which the directory would
+still be *named* `generated`.
+
+### The pyramids have no official fixture, and cannot get one
+
+Worth stating rather than leaving as an asymmetry someone trips over.
+
+CalculiX 2.22 answers `*ERROR reading *ELEMENT: C3D5 is an unknown element
+type` and stops. That is not a quirk of one deck: none of the 673 official
+2.23 decks mentions `C3D5` or `C3D13`, and a census of the 688 solved files
+finds **12 distinct cell types across 295,626 cells and no pyramid among
+them**:
+
+| cell type | cells | files | | cell type | cells | files |
+| --- | ---: | ---: | --- | --- | ---: | ---: |
+| `HEXAHEDRON` | 138,710 | 193 | | `QUADRATIC_EDGE` | 1,641 | 128 |
+| `WEDGE` | 64,148 | 16 | | `QUADRATIC_WEDGE` | 1,306 | 5 |
+| `QUADRATIC_HEXAHEDRON` | 56,255 | 425 | | `QUAD` | 329 | 8 |
+| `QUADRATIC_TETRA` | 24,408 | 95 | | `LINE` | 294 | 135 |
+| `TRIANGLE` | 3,894 | 13 | | `QUADRATIC_TRIANGLE` | 126 | 5 |
+| `QUADRATIC_QUAD` | 2,694 | 38 | | `TETRA` | 1,821 | 8 |
+
+So the PY5/PY13 support added by [pyvista#8936] is the one corner of the
+element table that **no file in either corpus corroborates**. Whatever writes
+those records, it is not this solver, and `tests/fixtures/elements/PY5.frd` and
+`PY13.frd` — both hand-written — remain the only evidence there is. The sweep
+cannot strengthen that claim, and this document should not be read as though
+it had.
+
+[pyvista#8936]: https://github.com/pyvista/pyvista/pull/8936
+
 ## Method
 
 `tools/sweep_external.py` runs both readers over each file and compares
@@ -262,3 +313,6 @@ can carry.
   will admit to having, not a census of FRD files in the world.
 - **It is one run on one machine.** The timings especially are a property of
   this hardware; the ratios travel better than the absolutes.
+- **Two element types are untouched by it.** PY5 and PY13 appear nowhere in
+  either corpus, for the reason above. Every other supported type is covered
+  by both hand-written and solver-written fixtures.

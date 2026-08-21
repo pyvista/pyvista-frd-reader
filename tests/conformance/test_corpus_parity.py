@@ -109,7 +109,7 @@ def test_corpus_is_not_empty():
     """
     from tests.conftest import corpus
 
-    assert len(corpus()) >= 33, 'the fixture corpus has shrunk'
+    assert len(corpus()) >= 45, 'the fixture corpus has shrunk'
 
 
 def test_mesh_matches_reference(fixture_path: Path):

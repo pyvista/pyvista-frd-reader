@@ -96,3 +96,50 @@ def test_the_nan_fixture_still_has_nans():
     """Likewise for the NaN coordinates CalculiX writes for network nodes."""
     raw = (FIXTURE_DIR / 'nan_coords.frd').read_bytes()
     assert raw.count(b'NaN') >= 3, 'nan_coords.frd has lost its NaN records'
+
+
+def test_the_generated_fixtures_are_really_solver_output():
+    """They must carry CalculiX's own banner, because that is the whole claim.
+
+    ``tests/fixtures/generated/`` exists to hold FRD that CalculiX wrote, as
+    opposed to FRD this project wrote to look like CalculiX's. The difference
+    is the entire value of those files: a hand-written fixture and a
+    hand-written reader can agree with each other and both be wrong about what
+    is on disk. Nothing else in the suite would notice if one were edited by
+    hand or replaced with an authored file, and after that the directory would
+    still be *named* generated.
+
+    The ``1UPGM``/``1UVERSION`` header records the writing program, so it is
+    the marker to hold them to.
+    """
+    generated = sorted((FIXTURE_DIR / 'generated').glob('*.frd'))
+    assert len(generated) >= 12, 'the generated corpus has shrunk'
+    for path in generated:
+        head = path.read_bytes()[:2048]
+        why = (
+            f'{path.name} has no CalculiX banner, so it is not solver output; '
+            f'regenerate it with tools/generate_fixtures.py rather than editing it'
+        )
+        assert b'1UPGM' in head, why
+        assert b'CalculiX' in head, why
+
+
+def test_every_element_type_the_reader_claims_has_a_fixture():
+    """And the two that have no *official* fixture are named, not glossed over.
+
+    CalculiX 2.22 rejects C3D5 outright, and a census of 688 files solved from
+    its own 2.23 regression suite contains no pyramid at all. So PY5 and PY13
+    are the one corner of the element table that only hand-written fixtures
+    cover, and that asymmetry should be visible here rather than discovered by
+    someone wondering why generated/ has twelve files and elements/ has
+    fourteen.
+    """
+    hand_written = {p.stem for p in (FIXTURE_DIR / 'elements').glob('*.frd')}
+    assert {'PY5', 'PY13'} <= hand_written, 'the pyramid fixtures have gone missing'
+
+    generated = {p.stem for p in (FIXTURE_DIR / 'generated').glob('*.frd')}
+    assert not {'pyramid5', 'pyramid13'} & generated, (
+        'a pyramid fixture appeared under generated/ -- if CalculiX has gained '
+        'C3D5 support, the note in tools/generate_fixtures.py and the section '
+        'in doc/parity.md both need revisiting'
+    )
