@@ -429,8 +429,17 @@ jobs:
         # must not.
         run: |
           python - <<'PYEOF'
+          import io
           import sys
           from readme_renderer.rst import render
+
+          # A fresh StringIO per render, never sys.stderr: readme_renderer
+          # calls stream.tell() on it, and on a CI runner stderr is a pipe.
+          # Passing stderr works on a terminal and raises
+          # io.UnsupportedOperation in Actions -- which is how the first
+          # version of this control passed locally and died on the runner.
+          def renders(text):
+              return render(text, stream=io.StringIO()) is not None
 
           good = open('README.rst').read()
           bad = good.replace(
@@ -441,9 +450,9 @@ jobs:
               sys.exit('::error::the control could not find the table it edits; '
                        'the README changed and this step needs updating')
 
-          if render(good, stream=sys.stderr) is None:
+          if not renders(good):
               sys.exit('::error::the real README does not render')
-          if render(bad, stream=sys.stderr) is not None:
+          if renders(bad):
               sys.exit('::error::the renderer accepted a malformed table')
           print('the README gate rejects markup PyPI would refuse, as it must')
           PYEOF
