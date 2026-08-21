@@ -160,8 +160,25 @@ Worth stating plainly.
   records go through the same emitter the byte gate covers; the headers are
   backed by the reader accepting them, by `WriteTest` in the gtest tier, and
   by the solver experiment above for the rewriting path only.
-- **The short ASCII format is barely represented.** Two files in 1,766 use it.
-  Every other file in both corpora is long ASCII, apart from one binary.
+- **Two of the four format codes have no external witness at all.** A census
+  of the block headers across all 1,766 files:
+
+  | format code | blocks | files |
+  | --- | ---: | ---: |
+  | 0, short ASCII | 0 | **0** |
+  | 1, long ASCII | 2,138 | 1,070 |
+  | 2, binary `float32` | 0 | **0** |
+  | 3, binary `float64` | 1 | 1 |
+  | none stated | 4 | 2 |
+
+  Codes 0 and 2 are read and written from the format's documented meaning and
+  are checked only by this library reading back what it wrote -- a closed loop,
+  and the in-tree fixtures do not break it either: they carry codes 1 and 3 and
+  nothing else. An earlier version of this list said the short ASCII format was
+  "barely represented, two files in 1,766". Those two files are the cgx dialect
+  below, which states **no format code**, and their element records are 5 columns
+  wide. Record width and format code are different things, and conflating them
+  turned a gap into a thin spot.
 - **Binary is thinner still.** CalculiX publishes exactly one binary FRD --
   `beampdouble.frd.ref` -- plus the twelve this project generates by adding
   `DOUBLE` to a `*NODE FILE` card. Format 2, binary float32, appears in
