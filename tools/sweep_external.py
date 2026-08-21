@@ -104,7 +104,7 @@ def bitwise_equal(a: np.ndarray, b: np.ndarray) -> bool:
     )
 
 
-def compare(path: Path) -> Result:
+def compare(path: Path) -> Result:  # noqa: PLR0911
     """Read one file both ways and say whether the answers agree."""
     result = Result(path=str(path), size_bytes=path.stat().st_size, verdict='error')
 
@@ -183,13 +183,39 @@ def compare(path: Path) -> Result:
                 return result
 
             return _compare_contents(result, data, native)
-        except Exception:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001
+            # The oracle can also refuse *during* a step rather than at the
+            # mesh: a ragged block, where one node in a result carries fewer
+            # components than the first, makes NumPy refuse the assignment.
+            # Both readers reject that file -- neither will store a short row
+            # -- but they reject it differently on purpose, a status code here
+            # against an exception there (see doc/divergences.md). That is a
+            # documented difference in *how* they refuse, not a difference in
+            # what they do with the file, so it gets its own verdict rather
+            # than being called a fault in the sweep.
+            theirs = f'{type(exc).__name__}: {exc}'
+            ours = _how_this_library_refuses(path)
+            if ours is not None:
+                result.verdict = 'both-refuse'
+                result.detail = f'oracle: {theirs} | native: {ours}'
+                return result
             result.verdict = 'error'
             result.detail = traceback.format_exc(limit=6)
             return result
         finally:
             if native is not None:
                 native.close()
+
+
+def _how_this_library_refuses(path: Path) -> str | None:
+    """Read with this library and return why it refused, or None if it did not."""
+    import pyvista_frd
+
+    try:
+        pyvista_frd.read(str(path))
+    except Exception as exc:  # noqa: BLE001
+        return f'{type(exc).__name__}: {exc}'
+    return None
 
 
 def _compare_contents(result: Result, data, native) -> Result:
@@ -330,7 +356,11 @@ def main() -> int:
         args.json.write_text(json.dumps([asdict(r) for r in results], indent=2))
         print(f'\nwritten to {args.json}')
 
-    return 0 if set(counts) <= {'agree'} else 1
+    # `both-decline` and `both-refuse` are agreements: the two readers reached
+    # the same conclusion about a file neither should read. Only a genuine
+    # disagreement, or a fault in the sweep itself, is a failure.
+    agreeing = {'agree', 'both-decline', 'both-refuse'}
+    return 0 if set(counts) <= agreeing else 1
 
 
 if __name__ == '__main__':

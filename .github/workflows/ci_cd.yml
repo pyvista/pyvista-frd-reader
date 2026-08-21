@@ -102,6 +102,18 @@ jobs:
       - name: Test
         run: pytest -v --color=yes
 
+      - name: The sweep tools must still run
+        # tools/sweep_external.py and tools/bench_corpus.py are aimed at a
+        # corpus that cannot live here -- CalculiX's regression suite is GPL
+        # and 251 MB -- so nothing in CI would otherwise execute them, and a
+        # tool nobody runs is a tool that has already broken. Pointed at the
+        # fixture corpus they are cheap, and they still exercise every path
+        # that matters: both readers, the bit-exact comparison, the
+        # both-decline branch, and the skip reporting.
+        run: |
+          python tools/sweep_external.py tests/fixtures --json /tmp/sweep.json
+          python tools/bench_corpus.py tests/fixtures --repeats 1
+
   mutation:
     name: Mutation sweep
     # Nineteen builds of the core, so not on every pull request: it would

@@ -87,6 +87,21 @@ value of every array. Two standards, the same two the conformance suite uses:
   32 ulp of the *tensor's* magnitude, not the eigenvalue's. See
   `doc/divergences.md` for why that distinction is the whole point.
 
+A file gets one of five verdicts. `agree` and `differ` are the obvious two.
+`both-decline` means both readers refused it in the same words. `both-refuse`
+means both refused it in *different* words — the ragged-block case, where the
+difference in wording is itself documented in `doc/divergences.md`; neither
+reader stores a short row, which is the part that matters. `error` is reserved
+for a fault in the sweep, so that a defect in the instrument can never be
+reported as a property of the reader. Neither corpus produced a `both-refuse`
+or an `error`; the fixture corpus produces one of each, which is what keeps
+those branches exercised.
+
+The sweep exits non-zero on `differ`, `error`, or a file only one reader could
+read. It exits zero on the two agreements, because a corpus that legitimately
+contains files neither reader should accept — which the GitHub one very much
+does — would otherwise make a clean run indistinguishable from a broken one.
+
 ## What the sweep found
 
 Four things. Two were defects in the sweep itself, one was a real gap in the
