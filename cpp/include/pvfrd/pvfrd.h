@@ -296,6 +296,88 @@ PVFRD_API int64_t pvfrd_find_array(const pvfrd_file *file, uint64_t step, const 
  * all. */
 PVFRD_API uint64_t pvfrd_steps_parsed(const pvfrd_file *file);
 
+/* ---- Writing ---- */
+
+/* The FRD format codes, which are the last field of every block header. The
+ * reader accepts all four; the writer emits all four. */
+typedef enum pvfrd_format {
+  PVFRD_FORMAT_KEEP = -1, /* rewrite only: leave each block as it was found */
+  PVFRD_FORMAT_SHORT_ASCII = 0,
+  PVFRD_FORMAT_LONG_ASCII = 1,
+  PVFRD_FORMAT_BINARY_FLOAT = 2,
+  PVFRD_FORMAT_BINARY_DOUBLE = 3
+} pvfrd_format;
+
+/* Read a document and write it out again, optionally in another format.
+ *
+ * With PVFRD_FORMAT_KEEP this is the identity on every FRD file this project
+ * has been able to find -- 1,111 of them, byte for byte, including two
+ * dialects of the format that differ in id width and in how they spell an
+ * exponent. That is the check that says the writer produces CalculiX's bytes
+ * and not merely bytes CalculiX would accept.
+ *
+ * With any other format it is the conversion the format code has always
+ * implied and no tool offered: binary FRD, which no ASCII-only reader can
+ * open, becomes ASCII; ASCII becomes about a third of the size.
+ *
+ * `*out` is allocated here and must be released with pvfrd_free. */
+PVFRD_API pvfrd_status pvfrd_rewrite_memory(const void *data, size_t size, int32_t format,
+                                            char **out, size_t *out_size);
+
+/* Release a buffer handed back by this library. Never freed with the caller's
+ * own allocator: on Windows the library and its caller can hold different
+ * heaps, and freeing across them is not a diagnosable crash. */
+PVFRD_API void pvfrd_free(char *buffer);
+
+/* A document being built. Opaque, and deliberately a builder rather than a
+ * struct the caller fills in: a struct would put its layout in the ABI, and
+ * every field added later would be a new struct size for every binding to
+ * agree about. */
+typedef struct pvfrd_writer pvfrd_writer;
+
+/* `format` is one of the four codes above; PVFRD_FORMAT_KEEP is not valid
+ * here, since there is nothing yet to keep. Returns NULL if it is. */
+PVFRD_API pvfrd_writer *pvfrd_writer_new(int32_t format);
+
+PVFRD_API void pvfrd_writer_free(pvfrd_writer *writer);
+
+/* The mesh. `node_ids` may be NULL, in which case nodes are numbered from 1.
+ * `xyz` is 3 * n_points doubles. */
+PVFRD_API pvfrd_status pvfrd_writer_set_nodes(pvfrd_writer *writer, uint64_t n_points,
+                                              const int64_t *node_ids, const double *xyz);
+
+/* Cells in VTK terms -- the arrays this library hands back on read -- which
+ * are converted to CalculiX type codes and CalculiX node order on the way
+ * out. `cell_ids` may be NULL, in which case elements are numbered from 1.
+ * `wedge_order` must match the convention `connectivity` is written in.
+ *
+ * Fails with PVFRD_E_FORMAT if a cell type has no CalculiX equivalent, naming
+ * it; silently dropping a cell would produce a file that is smaller than the
+ * mesh it claims to describe. */
+PVFRD_API pvfrd_status pvfrd_writer_set_cells(pvfrd_writer *writer, uint64_t n_cells,
+                                              const uint8_t *cell_types, const int64_t *offsets,
+                                              const int64_t *connectivity, const int64_t *cell_ids,
+                                              int32_t wedge_order);
+
+/* Open a step. Arrays added afterwards belong to it. */
+PVFRD_API pvfrd_status pvfrd_writer_begin_step(pvfrd_writer *writer, int32_t number, double time);
+
+/* One nodal array of the open step. `values` is n_points * n_components
+ * doubles, component-major within a node, in the node order given to
+ * pvfrd_writer_set_nodes.
+ *
+ * `component_names` may be NULL, in which case components are named after the
+ * array. `ictype` is CalculiX's own kind code -- 1 scalar, 2 vector, 4 tensor
+ * -- and 0 asks for it to be chosen from the component count. */
+PVFRD_API pvfrd_status pvfrd_writer_add_array(pvfrd_writer *writer, const char *name,
+                                              uint32_t n_components,
+                                              const char *const *component_names, int32_t ictype,
+                                              const double *values);
+
+/* Finish the document. `*out` is allocated here; release it with pvfrd_free.
+ * The writer may not be added to afterwards. */
+PVFRD_API pvfrd_status pvfrd_writer_finish(pvfrd_writer *writer, char **out, size_t *out_size);
+
 #ifdef __cplusplus
 } /* extern "C" */
 #endif

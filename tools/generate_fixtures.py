@@ -197,7 +197,7 @@ CASES = [
 # corroborates. See doc/parity.md.
 
 
-def deck(case: Case) -> str:
+def deck(case: Case, *, binary: bool = False) -> str:
     """One element, one material, fixed on one side and pulled on the other."""
     lines = [
         f'** {case.name}: a single {case.etype}, written by tools/generate_fixtures.py',
@@ -220,10 +220,15 @@ def deck(case: Case) -> str:
     for step in range(1, case.steps + 1):
         lines += ['*STEP', '*STATIC', '*CLOAD']
         lines += [f'{n}, 3, {100.0 * step}' for n in case.loaded]
+        # DOUBLE is what makes CalculiX write binary FRD, and it is a
+        # documented input keyword rather than anything exotic: `noelfiles.f`
+        # maps it to the output mode `frd.c` already branches on. Stock ccx,
+        # unpatched, produces format-3 records for nodes and results.
+        suffix = ', DOUBLE' if binary else ''
         lines += [
-            '*NODE FILE',
+            f'*NODE FILE{suffix}',
             'U',
-            '*EL FILE',
+            f'*EL FILE{suffix}',
             'S, E',
             '*END STEP',
         ]
@@ -264,11 +269,25 @@ def main() -> int:
     (args.out / 'src').mkdir(exist_ok=True)
 
     ok = failed = 0
+    binary_out = args.out / 'binary'
+    binary_out.mkdir(exist_ok=True)
+
     for case in CASES:
         source = deck(case)
         (args.out / 'src' / f'{case.name}.inp').write_text(source)
         good, detail = solve(source, case.name, args.out)
         print(f'  {"ok  " if good else "FAIL"} {case.name:12s} {case.etype:6s} {detail}')
+        ok, failed = (ok + 1, failed) if good else (ok, failed + 1)
+
+        # The binary twin of the same deck. Its value is that it is not graded
+        # against the PyVista oracle -- which cannot read binary at all -- but
+        # against the ASCII file above, written by the same solver from the
+        # same input. Two encodings of one computation is a comparison nothing
+        # in this repository can fake.
+        binary_source = deck(case, binary=True)
+        (args.out / 'src' / f'{case.name}_binary.inp').write_text(binary_source)
+        good, detail = solve(binary_source, f'{case.name}_binary', binary_out)
+        print(f'  {"ok  " if good else "FAIL"} {case.name + "_binary":20s} {detail}')
         ok, failed = (ok + 1, failed) if good else (ok, failed + 1)
 
     print(f'\n{ok} solved, {failed} failed')

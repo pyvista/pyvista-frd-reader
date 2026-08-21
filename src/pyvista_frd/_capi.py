@@ -19,6 +19,7 @@ import ctypes
 from ctypes import POINTER
 from ctypes import Structure
 from ctypes import byref
+from ctypes import c_char
 from ctypes import c_char_p
 from ctypes import c_double
 from ctypes import c_int
@@ -321,6 +322,59 @@ def _bind(lib: ctypes.CDLL) -> None:
 
     lib.pvfrd_steps_parsed.restype = c_uint64
     lib.pvfrd_steps_parsed.argtypes = [c_void_p]
+
+    _bind_writing(lib)
+
+
+def _bind_writing(lib: ctypes.CDLL) -> None:
+    """Declare the writing half, split out only because the two are long together."""
+    lib.pvfrd_rewrite_memory.restype = c_int
+    lib.pvfrd_rewrite_memory.argtypes = [
+        c_void_p,
+        c_size_t,
+        c_int32,
+        POINTER(POINTER(c_char)),
+        POINTER(c_size_t),
+    ]
+
+    lib.pvfrd_free.restype = None
+    lib.pvfrd_free.argtypes = [POINTER(c_char)]
+
+    lib.pvfrd_writer_new.restype = c_void_p
+    lib.pvfrd_writer_new.argtypes = [c_int32]
+
+    lib.pvfrd_writer_free.restype = None
+    lib.pvfrd_writer_free.argtypes = [c_void_p]
+
+    lib.pvfrd_writer_set_nodes.restype = c_int
+    lib.pvfrd_writer_set_nodes.argtypes = [c_void_p, c_uint64, c_void_p, c_void_p]
+
+    lib.pvfrd_writer_set_cells.restype = c_int
+    lib.pvfrd_writer_set_cells.argtypes = [
+        c_void_p,
+        c_uint64,
+        c_void_p,
+        c_void_p,
+        c_void_p,
+        c_void_p,
+        c_int32,
+    ]
+
+    lib.pvfrd_writer_begin_step.restype = c_int
+    lib.pvfrd_writer_begin_step.argtypes = [c_void_p, c_int32, c_double]
+
+    lib.pvfrd_writer_add_array.restype = c_int
+    lib.pvfrd_writer_add_array.argtypes = [
+        c_void_p,
+        c_char_p,
+        c_uint32,
+        c_void_p,
+        c_int32,
+        c_void_p,
+    ]
+
+    lib.pvfrd_writer_finish.restype = c_int
+    lib.pvfrd_writer_finish.argtypes = [c_void_p, POINTER(POINTER(c_char)), POINTER(c_size_t)]
 
 
 # ctypes struct id -> the C enumerator it must agree with.
@@ -649,3 +703,143 @@ class NativeFile:
     def find_array(self, step: int, name: str) -> int:
         """Index of ``name`` within ``step``, or -1."""
         return int(_lib.pvfrd_find_array(self._require_open(), step, name.encode('utf-8')))
+
+
+# The four FRD format codes, plus the rewrite-only "leave it alone".
+FORMAT_KEEP = -1
+FORMAT_SHORT_ASCII = 0
+FORMAT_LONG_ASCII = 1
+FORMAT_BINARY_FLOAT = 2
+FORMAT_BINARY_DOUBLE = 3
+
+
+def _take_buffer(pointer: object, size: int) -> bytes:
+    """Copy a library-allocated buffer out and release it.
+
+    Released through the library's own pvfrd_free rather than anything here:
+    on Windows the extension and its caller can be linked against different C
+    runtimes with different heaps, and freeing across them is not a crash that
+    tells you what happened.
+    """
+    try:
+        return ctypes.string_at(pointer, size)
+    finally:
+        _lib.pvfrd_free(pointer)
+
+
+def rewrite_bytes(data: bytes, fmt: int = FORMAT_KEEP) -> bytes:
+    """Re-emit an FRD document, optionally converting its format.
+
+    With ``FORMAT_KEEP`` this is the identity on well-formed FRD, which is the
+    property the byte-match gate checks against files this project did not
+    write.
+    """
+    pointer = POINTER(c_char)()
+    size = c_size_t()
+    _check(_lib.pvfrd_rewrite_memory(data, len(data), fmt, byref(pointer), byref(size)))
+    return _take_buffer(pointer, size.value)
+
+
+class Writer:
+    """Build an FRD document and emit it.
+
+    A context manager, because the native handle has to be released whether or
+    not the build succeeds::
+
+        with Writer(FORMAT_LONG_ASCII) as writer:
+            writer.set_nodes(points)
+            writer.set_cells(cell_types, offsets, connectivity)
+            writer.begin_step(1, 1.0)
+            writer.add_array('DISP', displacement)
+            data = writer.finish()
+    """
+
+    def __init__(self, fmt: int = FORMAT_LONG_ASCII) -> None:
+        handle = _lib.pvfrd_writer_new(fmt)
+        if not handle:
+            msg = f'{fmt} is not one of the four FRD format codes'
+            raise ValueError(msg)
+        self._handle = c_void_p(handle)
+        # Held so the buffers stay alive for as long as the writer might read
+        # them. ctypes does not keep a reference to what a c_void_p points at,
+        # and a temporary numpy array passed inline would be collected between
+        # the call that stores it and the call that uses it.
+        self._kept: list[NDArray] = []
+
+    def __enter__(self) -> Writer:
+        return self
+
+    def __exit__(self, *_exc: object) -> None:
+        self.close()
+
+    def close(self) -> None:
+        if self._handle:
+            _lib.pvfrd_writer_free(self._handle)
+            self._handle = c_void_p()
+
+    def _require(self) -> c_void_p:
+        if not self._handle:
+            msg = 'this writer has been closed'
+            raise ValueError(msg)
+        return self._handle
+
+    def _keep(self, values, dtype) -> object:  # noqa: ANN001
+        array = np.ascontiguousarray(values, dtype=dtype)
+        self._kept.append(array)
+        return array.ctypes.data_as(c_void_p)
+
+    def set_nodes(self, points, node_ids=None) -> None:  # noqa: ANN001
+        """Set the mesh points, ``(n, 3)``, and optionally their FRD ids."""
+        xyz = np.ascontiguousarray(points, dtype=np.float64).reshape(-1, 3)
+        ids = None if node_ids is None else self._keep(node_ids, np.int64)
+        _check(
+            _lib.pvfrd_writer_set_nodes(self._require(), len(xyz), ids, self._keep(xyz, np.float64))
+        )
+
+    def set_cells(self, cell_types, offsets, connectivity, cell_ids=None, wedge_order=0) -> None:  # noqa: ANN001
+        """Set the cells, in the same VTK terms the reader hands back."""
+        types = np.ascontiguousarray(cell_types, dtype=np.uint8)
+        ids = None if cell_ids is None else self._keep(cell_ids, np.int64)
+        _check(
+            _lib.pvfrd_writer_set_cells(
+                self._require(),
+                len(types),
+                self._keep(types, np.uint8),
+                self._keep(offsets, np.int64),
+                self._keep(connectivity, np.int64),
+                ids,
+                wedge_order,
+            )
+        )
+
+    def begin_step(self, number: int, time: float) -> None:
+        """Open a step. Arrays added after this belong to it."""
+        _check(_lib.pvfrd_writer_begin_step(self._require(), number, time))
+
+    def add_array(self, name: str, values, component_names=None, ictype: int = 0) -> None:  # noqa: ANN001
+        """Add one nodal array to the open step."""
+        data = np.ascontiguousarray(values, dtype=np.float64)
+        n_components = 1 if data.ndim == 1 else data.shape[1]
+        names = None
+        if component_names is not None:
+            encoded = [c.encode('utf-8') for c in component_names]
+            array = (c_char_p * len(encoded))(*encoded)
+            self._kept.append(array)  # type: ignore[arg-type]
+            names = ctypes.cast(array, c_void_p)
+        _check(
+            _lib.pvfrd_writer_add_array(
+                self._require(),
+                name.encode('utf-8'),
+                n_components,
+                names,
+                ictype,
+                self._keep(data, np.float64),
+            )
+        )
+
+    def finish(self) -> bytes:
+        """Emit the document. The writer cannot be added to afterwards."""
+        pointer = POINTER(c_char)()
+        size = c_size_t()
+        _check(_lib.pvfrd_writer_finish(self._require(), byref(pointer), byref(size)))
+        return _take_buffer(pointer, size.value)

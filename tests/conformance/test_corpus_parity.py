@@ -35,6 +35,7 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 from tests.conftest import UNREADABLE
+from tests.conftest import beyond_oracle
 
 # Eigenvalue agreement, expressed against the magnitude of the tensor the
 # eigenvalues came from. Backward stability gives an error of order
@@ -114,6 +115,8 @@ def test_corpus_is_not_empty():
 
 def test_mesh_matches_reference(fixture_path: Path):
     """Points, node ids and cells must be identical, not close."""
+    if beyond_oracle(fixture_path):
+        pytest.skip(f'{fixture_path.name}: binary FRD, which the oracle cannot read at all')
     if fixture_path.name in UNREADABLE:
         pytest.skip(f'{fixture_path.name}: {UNREADABLE[fixture_path.name]}')
 
@@ -136,6 +139,8 @@ def test_mesh_matches_reference(fixture_path: Path):
 
 def test_time_steps_match_reference(fixture_path: Path):
     """Step times, and the order they come in."""
+    if beyond_oracle(fixture_path):
+        pytest.skip(f'{fixture_path.name}: binary FRD, which the oracle cannot read at all')
     if fixture_path.name in UNREADABLE:
         pytest.skip(f'{fixture_path.name}: {UNREADABLE[fixture_path.name]}')
 
@@ -146,6 +151,8 @@ def test_time_steps_match_reference(fixture_path: Path):
 
 def test_arrays_match_reference(fixture_path: Path):
     """Every array of every step: names, order, shapes and values."""
+    if beyond_oracle(fixture_path):
+        pytest.skip(f'{fixture_path.name}: binary FRD, which the oracle cannot read at all')
     if fixture_path.name in UNREADABLE:
         pytest.skip(f'{fixture_path.name}: {UNREADABLE[fixture_path.name]}')
 
@@ -259,6 +266,8 @@ def test_newline_variants_read_identically():
 
 def test_open_from_memory_matches_open_from_path(fixture_path: Path):
     """The in-memory entry point is the same parser, not a second one."""
+    if beyond_oracle(fixture_path):
+        pytest.skip(f'{fixture_path.name}: binary FRD, which the oracle cannot read at all')
     if fixture_path.name in UNREADABLE:
         pytest.skip(f'{fixture_path.name}: {UNREADABLE[fixture_path.name]}')
 

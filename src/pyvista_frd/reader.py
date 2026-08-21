@@ -13,6 +13,7 @@ one day hand ``.frd`` to this package without any caller noticing.
 from __future__ import annotations
 
 import os
+from pathlib import Path
 from typing import TYPE_CHECKING
 import warnings
 
@@ -20,6 +21,7 @@ import numpy as np
 import pyvista as pv
 from pyvista.core.errors import InvalidMeshWarning
 
+from . import _capi
 from ._capi import WEDGE_ASIS
 from ._capi import WEDGE_SWAP
 from ._capi import Diagnostic
@@ -29,7 +31,14 @@ from ._capi import NativeFile
 if TYPE_CHECKING:
     from pyvista import UnstructuredGrid
 
-__all__ = ['ELEMENT_TYPE_NAMES', 'FRDReader', 'read']
+__all__ = ['ELEMENT_TYPE_NAMES', 'FRDReader', 'convert', 'read', 'write']
+
+# The array the reference reader uses to carry the file's own node numbering.
+ORIGINAL_NODE_IDS = 'original_node_ids'
+
+# A result record is one node and its components, so an array is at most
+# two-dimensional: nodes by components.
+_MAX_ARRAY_RANK = 2
 
 # CalculiX element codes and the names the reference reader prints in its
 # warnings. The C core reports codes; the names live here because they are
@@ -277,3 +286,146 @@ def read(path: str | os.PathLike[str], *, time_point: int | None = None) -> Unst
     if time_point is not None:
         reader.set_active_time_point(time_point)
     return reader.read()
+
+
+def _grid_cells(grid: UnstructuredGrid) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Return the cell arrays in the offset/connectivity form the core wants."""
+    offsets = np.asarray(grid.offset, dtype=np.int64)
+    connectivity = np.asarray(grid.cell_connectivity, dtype=np.int64)
+    return np.asarray(grid.celltypes, dtype=np.uint8), offsets, connectivity
+
+
+def write(  # noqa: PLR0913 - each argument is one documented knob of the format
+    path: str | os.PathLike[str],
+    mesh: UnstructuredGrid,
+    *,
+    binary: bool = False,
+    double: bool = True,
+    time: float = 1.0,
+    step: int = 1,
+) -> None:
+    """Write a mesh and its point data to a CalculiX FRD file.
+
+    Parameters
+    ----------
+    path : str | os.PathLike
+        File to write.
+    mesh : pyvista.UnstructuredGrid
+        The mesh. Every cell type must have a CalculiX element code; one that
+        does not is an error rather than a silently dropped cell.
+    binary : bool, default: False
+        Write the binary encoding rather than the ASCII one. Binary is about a
+        third of the size and holds the values exactly; ASCII holds six
+        significant digits and can be read by anything.
+    double : bool, default: True
+        With ``binary``, whether values are 64-bit. 32-bit halves the size of
+        the result blocks and is what a float32 array can carry anyway.
+    time, step : float and int
+        The time value and step number recorded in the result block header.
+
+    Notes
+    -----
+    Point data is written; cell data is not, because FRD's result blocks are
+    nodal. An array that is neither scalar, 3-vector nor 6-tensor is written
+    with a scalar kind code and its own component names.
+
+    The file identifies this library as its writer. It is not labelled as
+    CalculiX output, which several checks in this repository -- and possibly
+    in yours -- use to tell solver output from anything else.
+
+    Examples
+    --------
+    >>> import pyvista_frd
+    >>> pyvista_frd.write('out.frd', mesh)  # doctest: +SKIP
+
+    """
+    fmt = _capi.FORMAT_LONG_ASCII
+    if binary:
+        fmt = _capi.FORMAT_BINARY_DOUBLE if double else _capi.FORMAT_BINARY_FLOAT
+
+    celltypes, offsets, connectivity = _grid_cells(mesh)
+    points = np.asarray(mesh.points, dtype=np.float64)
+
+    # A mesh this library read carries the file's own node numbering in
+    # `original_node_ids` -- as strings, because that is what the reference
+    # reader produces and this one matches it. Those are node *numbers*, so
+    # they go back into the node records they came from rather than being
+    # written out again as a result array of stringified integers.
+    node_ids = None
+    arrays = list(mesh.point_data)
+    if ORIGINAL_NODE_IDS in mesh.point_data:
+        try:
+            node_ids = np.asarray(mesh.point_data[ORIGINAL_NODE_IDS]).astype(np.int64)
+        except (TypeError, ValueError):
+            node_ids = None  # not a numbering after all; write it as an array
+        else:
+            arrays.remove(ORIGINAL_NODE_IDS)
+
+    with _capi.Writer(fmt) as writer:
+        writer.set_nodes(points, node_ids)
+        if len(celltypes):
+            writer.set_cells(celltypes, offsets, connectivity, wedge_order=_default_wedge_order())
+        if arrays:
+            writer.begin_step(step, time)
+            for name in arrays:
+                raw = np.asarray(mesh.point_data[name])
+                try:
+                    values = raw.astype(np.float64)
+                except (TypeError, ValueError) as exc:
+                    # Refused rather than skipped. FRD result blocks hold
+                    # numbers, and an array quietly left out of the file is a
+                    # worse answer than being told it cannot go in.
+                    msg = (
+                        f'{name!r} has dtype {raw.dtype}, which FRD cannot hold: a result '
+                        f'block is numeric. Remove it or convert it before writing.'
+                    )
+                    raise ValueError(msg) from exc
+                if values.ndim > _MAX_ARRAY_RANK:
+                    msg = f'{name!r} has shape {values.shape}; FRD holds one value per component'
+                    raise ValueError(msg)
+                writer.add_array(name, values)
+        data = writer.finish()
+
+    Path(os.fspath(path)).write_bytes(data)
+
+
+def convert(
+    source: str | os.PathLike[str],
+    target: str | os.PathLike[str],
+    *,
+    binary: bool | None = None,
+    double: bool = True,
+) -> None:
+    """Rewrite an FRD file, optionally changing its encoding.
+
+    With no ``binary`` argument every block keeps the encoding it had, which
+    reproduces the input byte for byte -- the property the writer is graded on
+    against files CalculiX wrote.
+
+    The conversion is the useful direction: a binary FRD, which an ASCII-only
+    reader cannot open at all, becomes one any of them can read. Going the
+    other way costs precision, because ASCII holds six significant digits.
+
+    Raises
+    ------
+    FRDFormatError
+        If the document cannot be restated in the requested encoding -- a
+        block header that states no format code cannot be re-stamped, and
+        converting its records anyway would leave the header describing an
+        encoding they no longer use.
+
+    Examples
+    --------
+    >>> import pyvista_frd
+    >>> pyvista_frd.convert('binary.frd', 'ascii.frd', binary=False)  # doctest: +SKIP
+
+    """
+    if binary is None:
+        fmt = _capi.FORMAT_KEEP
+    elif binary:
+        fmt = _capi.FORMAT_BINARY_DOUBLE if double else _capi.FORMAT_BINARY_FLOAT
+    else:
+        fmt = _capi.FORMAT_LONG_ASCII
+
+    data = Path(os.fspath(source)).read_bytes()
+    Path(os.fspath(target)).write_bytes(_capi.rewrite_bytes(data, fmt))

@@ -52,6 +52,12 @@ C3D13. Both the short and long element-record formats are handled, including
 the case CalculiX produces past 9999 nodes, where the node ids in a record run
 together with no separator at all.
 
+**All four encodings**, which is a block header's last field: the two ASCII
+widths and the two binary ones, ``float32`` and ``float64``. Binary FRD is what
+CalculiX writes from ``*REFINE MESH`` and from a ``DOUBLE`` output card, and
+PyVista's reader cannot open it — it parses FRD as text, so a binary file
+returns an empty mesh or an error. See `doc/binary.md <doc/binary.md>`_.
+
 For any 6-component tensor whose name contains ``STRESS`` or ``STRAIN``, the
 reader appends the derived arrays PyVista's reader appends:
 
@@ -61,6 +67,31 @@ reader appends the derived arrays PyVista's reader appends:
 
 Elements with the wrong number of nodes, or a type nothing recognises, raise
 ``pyvista.InvalidMeshWarning`` naming the line they were found on.
+
+What it writes
+--------------
+
+The same four encodings.
+
+.. code:: python
+
+   import pyvista_frd
+
+   mesh = pyvista_frd.read("result.frd")
+   pyvista_frd.write("copy.frd", mesh)                # ASCII, six digits
+   pyvista_frd.write("small.frd", mesh, binary=True)  # a third of the size, exact
+
+   # Or convert without going through a mesh. A binary file that no ASCII-only
+   # reader can open becomes one any of them can.
+   pyvista_frd.convert("binary.frd", "ascii.frd", binary=False)
+
+The writer is graded on reproducing CalculiX's bytes, not on agreeing with this
+library's own reader: a document read and emitted again is the input **byte for
+byte**, over 1,111 external FRD files. That gate turned up a second dialect of
+the format shipped with CalculiX GraphiX, and the fact that CalculiX renders
+its ASCII values through single precision. Separately, CalculiX itself reads
+files this library writes and produces byte-identical results from them. The
+method and its limits are in `doc/writing.md <doc/writing.md>`_.
 
 Speed
 -----
@@ -87,9 +118,9 @@ build the VTK grid at the end; only the parse differs. On a small file that
 fixed cost is most of the work.
 
 Two files is a spot check, not a measurement. Over CalculiX's own regression
-suite -- 688 files, 251 MB, both readers driven to the same end state -- the
-aggregate is **6.08x**, the median file is **3.45x**, and the spread runs from
-0.97x on an empty file to 39.75x on a small one with many time steps. Those
+suite -- 839 files, 125 MB, both readers driven to the same end state -- the
+aggregate is **7.42x**, the median file is **5.49x**, and the spread runs from
+0.83x on a tiny file to 37.67x on a small one with many time steps. Those
 numbers, and the reason the naive comparison flatters this library, are in
 `doc/parity.md <doc/parity.md>`_.
 
@@ -97,12 +128,14 @@ Parity
 ------
 
 This reader is graded against PyVista's, file by file and array by array. As
-well as the fixture corpus in ``tests/``, it has been swept over **1,615 FRD
+well as the fixture corpus in ``tests/``, it has been swept over **1,766 FRD
 files this project did not write** -- CalculiX's regression suite, solved, plus
-every ``.frd`` GitHub's code search will return -- with **no divergences**. The
-method, the findings, and an explicit account of what the sweep does *not*
-establish are in `doc/parity.md <doc/parity.md>`_. Deliberate differences from
-PyVista are listed in `doc/divergences.md <doc/divergences.md>`_.
+every ``.frd`` GitHub's code search will return -- with **no divergences**. One
+of those files is binary and only this library can read it, which is counted as
+its own verdict rather than as an agreement. The method, the findings, and an
+explicit account of what the sweep does *not* establish are in
+`doc/parity.md <doc/parity.md>`_. Deliberate differences from PyVista are
+listed in `doc/divergences.md <doc/divergences.md>`_.
 
 Credit
 ------
