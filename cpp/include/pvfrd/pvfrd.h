@@ -44,14 +44,13 @@
 extern "C" {
 #endif
 
-/* Bumped on any change to the declarations below, additions included.
+/* Bumped on any change to the declarations below, additions included: the
+ * check is an equality, not a floor, so a binding that meets an older library
+ * missing a symbol reports the version rather than failing at bind time.
  *
- * Additions are bumped too because the check is an equality, not a floor: a
- * binding declares every symbol it knows about up front, so meeting an older
- * library missing one would fail at bind time with an error naming the symbol
- * rather than the version. Bumping keeps that mismatch reported as what it
- * is. */
-#define PVFRD_ABI_VERSION 1u
+ *   1  reading
+ *   2  writing */
+#define PVFRD_ABI_VERSION 2u
 
 typedef enum pvfrd_status {
   PVFRD_OK = 0,
@@ -149,16 +148,12 @@ typedef enum pvfrd_struct {
   PVFRD_STRUCT_DIAGNOSTIC = 2
 } pvfrd_struct;
 
-/* Size in bytes of one of the structs above, as this library was compiled.
- * Returns 0 for an unknown value.
- *
- * A binding that declares these layouts by hand -- which is every
- * foreign-function binding, including the ctypes one shipped with this
- * package -- has no compiler checking it. A field in the wrong order, or an
- * int where an int64 belongs, produces garbage rather than an error, and it
- * produces it only on the platform whose alignment rules differ from the one
- * the binding was written on. Comparing sizes catches that at the point where
- * it can still be reported. */
+/* Size in bytes of one of the structs above, as compiled. Returns 0 for an
+ * unknown value. A binding declaring these layouts by hand has no compiler
+ * checking it, and a field in the wrong order produces garbage rather than an
+ * error -- on whichever platform's alignment rules differ from the one the
+ * binding was written on. Comparing sizes catches it where it can still be
+ * reported. */
 PVFRD_API uint32_t pvfrd_struct_size(int which);
 
 /* A short, stable description of a status code. Never NULL. */
@@ -168,13 +163,10 @@ PVFRD_API const char *pvfrd_status_message(int status);
  * reader. Carries the detail a status code cannot -- which array was ragged,
  * which line refused to parse.
  *
- * `file` may be NULL, and that is the case worth knowing about: a failure in
- * pvfrd_open leaves no reader to ask, which is exactly when the caller most
- * needs the detail. With NULL this returns the last failure recorded on the
- * *calling thread* instead, so the open path has somewhere to put it.
- *
- * The thread-local message is valid until the next failing call on the same
- * thread. Copy it if you intend to keep it. Never NULL. */
+ * `file` may be NULL: a failure in pvfrd_open leaves no reader to ask, which
+ * is when the detail is most wanted, so NULL returns the last failure on the
+ * *calling thread* instead. That message is valid until the next failing call
+ * on the same thread. Never NULL. */
 PVFRD_API const char *pvfrd_last_error(const pvfrd_file *file);
 
 /* ---- Opening ---- */
@@ -259,17 +251,12 @@ PVFRD_API pvfrd_status pvfrd_n_arrays(const pvfrd_file *file, uint64_t step, uin
 PVFRD_API pvfrd_status pvfrd_array_info_at(const pvfrd_file *file, uint64_t step, uint64_t index,
                                            pvfrd_array_info *out);
 
-/* Describe `count` arrays starting at `first`.
+/* Describe `count` arrays starting at `first`: pvfrd_array_info_at in a loop,
+ * but one crossing of the boundary rather than one per array, which matters
+ * to a foreign-function caller paying a fixed cost per call.
  *
- * The same information as calling pvfrd_array_info_at in a loop; the point is
- * that it is one crossing of the boundary rather than one per array. A caller
- * reaching this library through a foreign-function layer pays a fixed cost
- * per call that can exceed the work being asked for, and a step holds one
- * array per result block plus five more for every tensor, so describing a
- * step was paying that cost a dozen times to copy a few hundred bytes.
- *
- * Returns PVFRD_E_RANGE and writes nothing if first + count runs past the
- * end. A count of zero succeeds and writes nothing. */
+ * PVFRD_E_RANGE and nothing written if first + count runs past the end. A
+ * count of zero succeeds and writes nothing. */
 PVFRD_API pvfrd_status pvfrd_array_info_range(const pvfrd_file *file, uint64_t step, uint64_t first,
                                               uint64_t count, pvfrd_array_info *out);
 
@@ -281,19 +268,13 @@ PVFRD_API pvfrd_status pvfrd_array_data(const pvfrd_file *file, uint64_t step, u
 /* Index of the array called `name` within `step`, or -1 if there is none. */
 PVFRD_API int64_t pvfrd_find_array(const pvfrd_file *file, uint64_t step, const char *name);
 
-/* How many times a step's values have been parsed.
+/* How many times a step's values have been parsed. Zero after opening, and
+ * thereafter the number of *distinct* steps asked about.
  *
- * Zero immediately after opening. For correct behaviour it equals the number
- * of *distinct* steps a caller has asked about, because a step is parsed at
- * most once and every later request is a lookup.
- *
- * Exposed because both halves of that are otherwise unverifiable claims. A
- * reader that parsed everything up front, or that re-parsed on every request,
- * would return identical arrays and identical timings on any file small
- * enough to sit in page cache -- the only thing separating the designs is
- * what a large file costs. Counting parses is what tells them apart, and it
- * counts parses rather than parsed steps so that a re-parse is visible at
- * all. */
+ * Exposed because laziness is otherwise an unverifiable claim: a reader that
+ * parsed everything up front, or re-parsed on every request, returns identical
+ * arrays and identical timings on any file that fits in page cache. Parses are
+ * counted rather than parsed steps, so a re-parse is visible at all. */
 PVFRD_API uint64_t pvfrd_steps_parsed(const pvfrd_file *file);
 
 /* ---- Writing ---- */
@@ -310,29 +291,25 @@ typedef enum pvfrd_format {
 
 /* Read a document and write it out again, optionally in another format.
  *
- * With PVFRD_FORMAT_KEEP this is the identity on every FRD file this project
- * has been able to find -- 1,111 of them, byte for byte, including two
- * dialects of the format that differ in id width and in how they spell an
- * exponent. That is the check that says the writer produces CalculiX's bytes
- * and not merely bytes CalculiX would accept.
+ * With PVFRD_FORMAT_KEEP this is the identity on all 1,111 FRD files this
+ * project has found, byte for byte, across two dialects that differ in id
+ * width and in how they spell an exponent -- the check that says the writer
+ * produces CalculiX's bytes and not merely bytes CalculiX would accept.
  *
- * With any other format it is the conversion the format code has always
- * implied and no tool offered: binary FRD, which no ASCII-only reader can
- * open, becomes ASCII; ASCII becomes about a third of the size.
+ * Any other format is the conversion the format code has always implied and
+ * no tool offered: binary becomes ASCII, ASCII becomes a third of the size.
  *
  * `*out` is allocated here and must be released with pvfrd_free. */
 PVFRD_API pvfrd_status pvfrd_rewrite_memory(const void *data, size_t size, int32_t format,
                                             char **out, size_t *out_size);
 
-/* Release a buffer handed back by this library. Never freed with the caller's
- * own allocator: on Windows the library and its caller can hold different
- * heaps, and freeing across them is not a diagnosable crash. */
+/* Release a buffer handed back by this library. Never free one with your own
+ * allocator: on Windows the two can hold different heaps. */
 PVFRD_API void pvfrd_free(char *buffer);
 
-/* A document being built. Opaque, and deliberately a builder rather than a
- * struct the caller fills in: a struct would put its layout in the ABI, and
- * every field added later would be a new struct size for every binding to
- * agree about. */
+/* A document being built. A builder rather than a caller-filled struct, whose
+ * layout would be in the ABI and whose every later field a new size for every
+ * binding to agree about. */
 typedef struct pvfrd_writer pvfrd_writer;
 
 /* `format` is one of the four codes above; PVFRD_FORMAT_KEEP is not valid

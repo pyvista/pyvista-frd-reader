@@ -64,21 +64,39 @@ The writer now measures both from the first record of each block and
 reproduces what it read. Imposing one dialect on a file written in the other
 would be reformatting somebody's data on the way through.
 
-### CalculiX writes ASCII through single precision
+### CalculiX writes ASCII through single precision; this writer does not
 
-Converting a binary fixture to ASCII and comparing against the ASCII file
-CalculiX wrote from the same run of the same deck: 800 of 825 record lines
-matched, and 25 differed by one in the last digit -- always at a rounding tie.
+`frd.c` casts every value to `float` before printing it, so its ASCII output is
+the six-digit rounding of a `float32`. This writer renders the `double` it
+holds. The two agree except at a rounding tie: `6.464285098e-04` prints as
+`6.46429E-04` from the double and `6.46428E-04` from the float.
 
-`6.464285098e-04` prints as `6.46429E-04` from the double and `6.46428E-04`
-from the float, and the float is what CalculiX writes. Rounding the double is
-not more accurate here; it is a different number from the one the format
-carries. Narrowing before formatting takes it to **825 of 825**.
+Converting the twelve binary fixtures to ASCII and comparing against the ASCII
+CalculiX wrote from the same run of the same deck: **800 of 825 record lines
+match, and 25 differ by one in the last digit.** Every one of the 25 is a tie,
+and matching all 825 needs only a `static_cast<float>` before the `snprintf`.
 
-Safe in the other direction too: the format holds six significant digits and a
-float round-trips six exactly. The guard is for values no float can hold, of
-which there are none in the 2,976,281 scanned across the corpus -- but losing
-one silently to an infinity would be a poor way to find the first.
+That cast is deliberately not there. A value this library writes is the nearest
+six-digit decimal to the number it is holding, which is the stronger of the two
+guarantees and the only one that stays true when the source was never a float
+in the first place -- a mesh handed to the builder from NumPy, or a `float64`
+binary block. Reproducing CalculiX's tie-breaking would mean discarding
+precision on every value in order to agree about the 25 that differ -- 3% of
+the record lines, and 0.8% of the 3,044 values on them.
+
+The consequence is stated where it can be acted on: this is the one respect in
+which a *converted* file is not byte-identical to what CalculiX would have
+written, and `doc/divergences.md` carries it. A file read and written back in
+its own format is unaffected -- there is no cast on that path, in either
+direction, and the byte gate below covers it over 1,111 files.
+
+Both claims are pinned exactly rather than by a band.
+`test_converted_ascii_is_the_double_rounded_not_the_float` requires our text to
+be the rounding of the stored double *and* CalculiX's to be the rounding of its
+float, so a decode reading the wrong bytes cannot satisfy either.
+`test_the_float_cast_explains_a_few_percent_and_no_more` bounds the population
+from both sides: nothing differing would mean the cast is never exercised, and
+a large fraction differing would mean something other than a tie is at work.
 
 ### Glued element ids
 
@@ -167,7 +185,7 @@ supposed to catch it, so being killed by the *wrong* gate is visible as such.
 | mutant | the gate that catches it |
 | --- | --- |
 | `writer-value-precision` — `%12.5E` becomes `%12.6E` | byte-for-byte round trip |
-| `writer-value-not-narrowed` — format the double, not the float | binary → ASCII vs CalculiX |
+| `writer-narrows-through-float32` — cast before formatting | binary → ASCII vs CalculiX |
 | `writer-faces-wrap-at-nine` | byte-for-byte round trip |
 | `writer-values-wrap-at-five` | byte-for-byte round trip |
 | `writer-face-width-assumed` — inherit the parse heuristic | byte-for-byte round trip |

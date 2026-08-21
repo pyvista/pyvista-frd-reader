@@ -20,6 +20,7 @@ import warnings
 import numpy as np
 import pyvista as pv
 from pyvista.core.errors import InvalidMeshWarning
+from pyvista.core.utilities.arrays import convert_array
 
 from . import _capi
 from ._capi import WEDGE_ASIS
@@ -35,6 +36,8 @@ __all__ = ['ELEMENT_TYPE_NAMES', 'FRDReader', 'convert', 'read', 'write']
 
 # The array the reference reader uses to carry the file's own node numbering.
 ORIGINAL_NODE_IDS = 'original_node_ids'
+
+_INT32_MAX = 2**31 - 1
 
 # A result record is one node and its components, so an array is at most
 # two-dimensional: nodes by components.
@@ -227,7 +230,9 @@ class FRDReader:
         connectivity = self._file.cell_connectivity
         celltypes = self._file.cell_types
 
-        grid = pv.UnstructuredGrid(_legacy_cells(offsets, connectivity), celltypes, points)
+        grid = pv.UnstructuredGrid()
+        grid.points = np.array(points, dtype=np.float64)
+        grid.SetCells(convert_array(celltypes, deep=True), _cell_array(offsets, connectivity))
 
         # Strings, not integers: the reference stores them this way and code
         # in the wild compares against `str(node_id)`.
@@ -241,24 +246,33 @@ class FRDReader:
         return grid
 
 
-def _legacy_cells(offsets: np.ndarray, connectivity: np.ndarray) -> np.ndarray:
-    """Interleave point counts into the connectivity, VTK's legacy cell form.
+class _Cells(pv.CellArray):
+    """Cells in the width they were handed in, holding on to the buffers.
 
-    ``pyvista.UnstructuredGrid`` takes this shape, and building it here keeps
-    the C ABI on the offsets/connectivity pair that VTK 9 and every other
-    consumer actually use. Done with array arithmetic rather than a loop
-    because the loop is what the C++ core exists to avoid.
+    ``vtkCellArray`` keeps whichever index width it is given and does not take
+    ownership of it, so both arrays are kept here for as long as this lives.
+    ``CellArray.from_arrays`` would do the keeping but promotes to
+    ``pv.ID_TYPE`` on the way, which is the thing being avoided.
     """
-    n_cells = len(offsets) - 1
-    if n_cells <= 0:
-        return np.empty(0, dtype=pv.ID_TYPE)
-    cells = np.empty(len(connectivity) + n_cells, dtype=pv.ID_TYPE)
-    positions = offsets[:-1] + np.arange(n_cells)
-    cells[positions] = np.diff(offsets)
-    mask = np.ones(len(cells), dtype=bool)
-    mask[positions] = False
-    cells[mask] = connectivity
-    return cells
+
+    def __init__(self, offsets: np.ndarray, connectivity: np.ndarray) -> None:
+        super().__init__()
+        self._arrays = (offsets, connectivity)
+        self.SetData(convert_array(offsets), convert_array(connectivity))
+
+
+def _cell_array(offsets: np.ndarray, connectivity: np.ndarray) -> pv.CellArray:
+    """Build the grid's cells, in 32-bit storage when the mesh fits.
+
+    Narrowing here halves what a grid costs to hold for the whole of its life,
+    and anything short of two billion connectivity entries fits -- which is
+    every FRD file that has ever been written.
+
+    Both arrays are copied: the ones handed in are views into memory the native
+    reader owns and frees.
+    """
+    dtype = np.int32 if len(offsets) and offsets[-1] <= _INT32_MAX else np.int64
+    return _Cells(offsets.astype(dtype), connectivity.astype(dtype))
 
 
 def read(path: str | os.PathLike[str], *, time_point: int | None = None) -> UnstructuredGrid:

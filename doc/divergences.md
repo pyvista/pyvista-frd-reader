@@ -11,6 +11,9 @@ They are not interchangeable, and the conformance suite treats them
 differently: behavioural agreement is asserted exactly, and only the one
 numerical entry is given a tolerance.
 
+A third section at the end is about the **writer**, and its reference is
+CalculiX rather than PyVista.
+
 ## Numerical
 
 ### Principal stresses and strains agree to within 32 ulp of the tensor
@@ -177,6 +180,38 @@ why.
 
 *Pinned by* `tests/test_reader.py::test_pyramid_nodes_land_unpermuted`, and by
 the skip list in `tests/conformance/test_diagnostics_parity.py`.
+
+## Where the writer differs from CalculiX
+
+One entry, and it is against a different reference: everything above compares
+two readers, and this compares what this library *writes* against what
+CalculiX writes.
+
+### Converting binary to ASCII renders the double, not a float
+
+`frd.c` casts every value to `float` before printing it, so CalculiX's ASCII is
+the six-digit rounding of a `float32`. This writer renders the `double` it
+holds, which is the nearest six-digit decimal to the number actually stored.
+
+The two agree except at a rounding tie: `6.464285098e-04` is `6.46429E-04` from
+the double and `6.46428E-04` from the float. Across the twelve binary fixtures
+that have an ASCII twin from the same solver run, **25 of 825 record lines
+differ, all of them ties**.
+
+Not closed, though a single cast would close it. The rendering here is correct
+for a value that was never a `float32` -- a `float64` binary block, or a mesh
+handed to the builder from NumPy -- and matching CalculiX's tie-breaking would
+mean discarding precision on every value to agree about the 25 that differ,
+which is 3% of the record lines and 0.8% of the 3,044 values on them.
+
+This affects **conversion only**. A file read and written back in its own
+format has no cast on either path and is byte-identical, over 1,111 external
+files.
+
+*Pinned by* `test_converted_ascii_is_the_double_rounded_not_the_float`, which
+states both renderings exactly, `test_the_float_cast_explains_a_few_percent_and_no_more`, which bounds the
+population from both sides, and the
+`writer-narrows-through-float32` mutant.
 
 ## Not differences
 

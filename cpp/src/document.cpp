@@ -1,12 +1,10 @@
 /* Parsing a document for re-emission, and emitting it again.
  *
- * The field layout here was derived from CalculiX's own output rather than
- * from its source, which is a licensing decision as much as a technical one:
- * this project is MIT and CalculiX is GPL, so the layout is taken as a fact
- * about the files -- measured across 833 of them -- and not transcribed from
- * anyone's expression of it. Every width below was checked against the corpus
- * before it was written, and is checked again on every run by the byte-match
- * gate, which is the only reason to believe any of it.
+ * The field layout was derived from CalculiX's output, not its source: this
+ * project is MIT and CalculiX is GPL, so the layout is a measured fact about
+ * 833 files rather than a transcription of anyone's expression of it. Every
+ * width below is re-checked on each run by the byte-match gate, which is the
+ * only reason to believe any of it.
  *
  * Measured, uniform across the whole corpus:
  *
@@ -175,34 +173,11 @@ void write_f64_le(std::string *out, double value) {
  * them as `NaN`; glibc's printf prints `NAN` and Windows prints `nan`. Left
  * to the C library the same document would be written three ways depending on
  * where it was written, so the spelling is fixed here. */
-/* CalculiX writes its ASCII values through single precision, and it shows.
- *
- * Converting one of its binary files to ASCII and comparing against the ASCII
- * file it wrote from the same run, 800 of 825 record lines matched and 25
- * differed -- always by one in the last digit, always at a rounding tie.
- * 6.464285098e-04 prints as 6.46429E-04 from the double and 6.46428E-04 from
- * the float, and the float is what CalculiX writes. Rounding the double is
- * not more accurate here, it is a different number from the one the format
- * carries.
- *
- * Safe for re-emitting an ASCII file too: the format holds six significant
- * digits and a float round-trips six exactly, so a value read from ASCII and
- * narrowed comes back as itself. The guard is for values a float cannot hold
- * at all -- none exist in 2,976,281 scanned across the corpus, but losing one
- * silently to an infinity or a zero would be a poor way to find the first. */
-double as_written(double value) {
-  const float narrowed = static_cast<float>(value);
-  if (!std::isfinite(narrowed)) return value;
-  if (narrowed == 0.0F && value != 0.0) return value;
-  return static_cast<double>(narrowed);
-}
-
-void append_value(std::string *out, double value_in, bool fortran) {
-  if (std::isnan(value_in)) {
+void append_value(std::string *out, double value, bool fortran) {
+  if (std::isnan(value)) {
     out->append("         NaN");
     return;
   }
-  const double value = as_written(value_in);
   char buffer[32];
   if (!fortran) {
     std::snprintf(buffer, sizeof(buffer), "%12.5E", value);

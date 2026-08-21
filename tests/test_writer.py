@@ -96,12 +96,10 @@ def test_the_byte_gate_has_solver_written_files_to_grade():
 def test_solver_written_files_survive_a_round_trip_byte_for_byte(path):
     """Read and emit again: the output is the input, byte for byte.
 
-    Every field width, every wrapping rule and every way of spelling a number
-    has to be right for this to hold, and none of it is graded against this
-    project's opinion of the format -- these files came out of CalculiX.
-
-    The same gate runs out of tree over 1,111 external files, which is where
-    it found the two dialects the emitter now reproduces. See doc/writing.md.
+    Every field width and wrapping rule has to be right, and none of it is
+    graded against this project's opinion of the format -- these files came
+    out of CalculiX. The same gate runs out of tree over 1,111 external files,
+    which is where it found the two dialects; see doc/writing.md.
     """
     data = path.read_bytes()
     assert _capi.rewrite_bytes(data) == data
@@ -158,14 +156,11 @@ def _materialise_or_refusal(data: bytes):
 def test_every_fixture_keeps_its_meaning_through_the_writer(path):
     """What the hand-written fixtures get instead of byte identity.
 
-    A file may be respelled -- `0.0` becomes `0.00000E+00` -- but it may not
-    come back describing a different mesh or different numbers. Compared by
-    bit pattern, so a lost sign on a negative zero is a failure and a NaN that
-    stayed a NaN is not.
-
-    A fixture the reader refuses has to be refused identically afterwards. A
-    writer that quietly repaired a ragged block would otherwise pass a "reads
-    back the same" test by making the problem go away.
+    A file may be respelled -- `0.0` becomes `0.00000E+00` -- but not come
+    back a different mesh. Compared by bit pattern, so a lost negative zero
+    fails. A fixture the reader refuses must be refused identically: a writer
+    quietly repairing a ragged block would otherwise pass by making the
+    problem go away.
     """
     data = path.read_bytes()
     rewritten = _capi.rewrite_bytes(data)
@@ -211,32 +206,79 @@ def test_rewriting_twice_changes_nothing_more(path):
     assert _capi.rewrite_bytes(once) == once
 
 
+def _all_values(data: bytes) -> np.ndarray:
+    """Return every value a document actually stores, in order.
+
+    Raw arrays only. Mises and the principal values are computed by the reader
+    from the tensor rather than read, so they are full-precision results of
+    rounded inputs and say nothing about how a field was written.
+    """
+    reader = _capi.NativeFile.from_bytes(data)
+    try:
+        out = [np.asarray(reader.points, dtype=np.float64).ravel()]
+        for step in range(reader.n_steps):
+            for index, (_name, _n, kind) in enumerate(reader.array_infos(step)):
+                if kind != 0:  # PVFRD_ARRAY_RAW
+                    continue
+                out.append(np.asarray(reader.array(step, index), dtype=np.float64).ravel())
+        return np.concatenate(out)
+    finally:
+        reader.close()
+
+
+def _rendered(values: np.ndarray) -> np.ndarray:
+    """Return `values` as ASCII six-digit fields would hold them."""
+    return np.array([float(f'{v:12.5E}') for v in values])
+
+
 @pytest.mark.parametrize(
     ('name', 'binary', 'ascii_twin'), BINARY_PAIRS, ids=[p[0] for p in BINARY_PAIRS]
 )
-def test_binary_converted_to_ascii_matches_what_calculix_wrote(name, binary, ascii_twin):
-    """The check that does not go through this project's idea of the format.
+def test_converted_ascii_is_the_double_rounded_not_the_float(name, binary, ascii_twin):
+    """Convert binary to ASCII and account for every difference from CalculiX.
 
-    Each binary fixture has an ASCII twin CalculiX wrote from the same deck in
-    the same run. Converting the binary one has to produce the twin's records
-    exactly -- not close, exactly -- which pins the binary decode and the
-    ASCII emitter against each other with CalculiX holding both ends.
-
-    Records only. The header lines carry the wall clock of the run that wrote
-    them and the two runs are not the same minute.
+    Ours is the six-digit rounding of the stored ``float64``; CalculiX's is
+    that value cast to ``float`` first, because ``frd.c`` casts on its ASCII
+    path. Both exact rather than banded, so a decode reading the wrong bytes
+    cannot pass.
     """
-    converted = _capi.rewrite_bytes(binary.read_bytes(), _capi.FORMAT_LONG_ASCII)
-    ours = [line for line in converted.split(b'\n') if line[:3] in (b' -1', b' -2')]
-    theirs = [line for line in ascii_twin.read_bytes().split(b'\n') if line[:3] in (b' -1', b' -2')]
+    exact = _all_values(binary.read_bytes())
+    ours = _all_values(_capi.rewrite_bytes(binary.read_bytes(), _capi.FORMAT_LONG_ASCII))
+    theirs = _all_values(ascii_twin.read_bytes())
 
-    assert len(ours) == len(theirs), (
-        f'{name}: {len(ours)} record lines, CalculiX wrote {len(theirs)}'
+    assert exact.size, f'{name} holds no values'
+    assert ours.shape == exact.shape == theirs.shape, f'{name}: value counts differ'
+
+    np.testing.assert_array_equal(
+        ours, _rendered(exact), err_msg=f'{name}: our ASCII is not the rounded double'
     )
-    assert ours, f'{name} produced no records, so this test compared nothing'
-    mismatched = [(a, b) for a, b in zip(ours, theirs, strict=True) if a != b]
-    assert not mismatched, (
-        f'{name}: {len(mismatched)} of {len(ours)} record lines differ from CalculiX\n'
-        f'  ours     {mismatched[0][0]!r}\n  CalculiX {mismatched[0][1]!r}'
+    np.testing.assert_array_equal(
+        theirs,
+        _rendered(exact.astype(np.float32).astype(np.float64)),
+        err_msg=f"{name}: CalculiX's ASCII is not the rounded float",
+    )
+
+
+def test_the_float_cast_explains_a_few_percent_and_no_more():
+    """The population, so that a change in it is visible rather than local.
+
+    Both bounds matter. Nothing differing would mean the cast is never
+    exercised and the test above never reaches the claim that separates the
+    two renderings; a large fraction differing would mean something other than
+    a rounding tie is at work.
+    """
+    total = differing = 0
+    for _name, binary, ascii_twin in BINARY_PAIRS:
+        exact = _all_values(binary.read_bytes())
+        theirs = _all_values(ascii_twin.read_bytes())
+        total += exact.size
+        differing += int((_rendered(exact) != theirs).sum())
+
+    assert total > 500, 'too few values to say anything about the population'
+    assert differing, 'nothing differs, so the float cast is never exercised'
+    assert differing < total * 0.1, (
+        f'{differing} of {total} values differ from CalculiX; a rounding tie explains '
+        f'a few percent, so more than that is a different problem'
     )
 
 
@@ -246,15 +288,11 @@ def test_binary_converted_to_ascii_matches_what_calculix_wrote(name, binary, asc
 def test_converting_to_ascii_writes_the_terminator_ascii_requires(name, binary, ascii_twin):  # noqa: ARG001
     """Binary blocks have no ` -3`; ASCII ones must get one.
 
-    CalculiX writes the terminator only in ASCII mode, so converting from
-    binary has to invent it. Leaving it out produces a file that looks
-    plausible and that CalculiX rejects with "there are either no nodes or no
-    elements in the master frd-file" -- its reader ends a block on the
-    terminator, so without one the rest of the file is still the node block.
-
-    Worth its own test because the round-trip gate cannot see it: that gate
-    compares a file with itself, and a binary block with no terminator still
-    has none afterwards. It took a solver reading the converted file to find.
+    CalculiX writes the terminator only in ASCII mode, so converting has to
+    invent it. Without it CalculiX rejects the file: its reader ends a block on
+    the terminator, so the rest of the file is still the node block. The
+    round-trip gate cannot see this -- it compares a file with itself, where a
+    missing terminator stays missing on both sides.
     """
     converted = _capi.rewrite_bytes(binary.read_bytes(), _capi.FORMAT_LONG_ASCII)
     original = binary.read_bytes()
@@ -385,16 +423,11 @@ def test_a_writer_rejects_a_format_that_is_not_one():
 def _canonical_glued_document() -> bytes:
     """A short-format element whose face ids are written with no gap.
 
-    Five-wide fields holding five-digit ids leave nothing between them, so the
-    connectivity comes out as `1000110002100031...`. It is one line of eight
-    ids and it reads as a single forty-digit number, which overflows and is
-    dropped -- taking the element's connectivity with it, silently.
-
-    Built here rather than committed because the repository's short-format
-    fixture, ``glued_ids_short.frd``, has a malformed element header: its
-    element block is passed through verbatim, so the fixture never reaches the
-    face-parsing path it was named for. Written in canonical spelling so byte
-    identity is a fair thing to ask.
+    Five-wide fields holding five-digit ids leave nothing between them, so
+    eight ids come out as `1000110002100031...` and read as one forty-digit
+    number, which overflows and is silently dropped. Built here because the
+    committed short-format fixture has a malformed element header and never
+    reaches the face-parsing path it was named for.
     """
     lines = ['1C glued faces', '2C']
     lines += [f' -1{10000 + i:5d}{float(i):12.5E}{0.0:12.5E}{0.0:12.5E}' for i in range(1, 9)]
@@ -526,15 +559,11 @@ def test_convert_turns_binary_into_something_an_ascii_reader_can_open(tmp_path):
 def _document_with_a_stray_line_in_the_middle() -> bytes:
     """A node block with a line the parser cannot read, halfway down it.
 
-    FRD files carry unstructured text, and a line that is not a record is not
-    an error -- the reader steps over it. The writer has to put it back where
-    it was. An earlier version kept unparsed lines with the block's header and
-    emitted that list first, which moved this line to the top of the block:
-    the file still read back as the same mesh, and its bytes had been
-    rearranged.
-
-    Canonical spelling everywhere else, so byte identity is a fair thing to
-    ask and the only thing that can fail is the position.
+    A line that is not a record is not an error -- the reader steps over it,
+    and the writer has to put it back where it was. An earlier version emitted
+    unparsed lines with the block header, hoisting this one to the top: the
+    file still read back as the same mesh, with its bytes rearranged.
+    Canonical spelling elsewhere, so only the position can fail.
     """
     lines = ['1C stray line', '2C']
     lines += [f' -1{i:10d}{float(i):12.5E}{0.0:12.5E}{0.0:12.5E}' for i in (1, 2)]
@@ -580,16 +609,11 @@ def test_an_unreadable_line_keeps_its_place_in_the_block():
 def test_a_nan_is_spelled_the_way_calculix_spells_it():
     """`NaN`, not `NAN` and not `nan`.
 
-    CalculiX writes NaN coordinates for the nodes of a network deck -- nodes
-    in a fluid model that have no geometric position -- and spells it `NaN`.
-    Left to the C library the same document would be written three ways
-    depending on where it ran: glibc's printf produces `NAN`, Microsoft's
-    produces `nan`. So the spelling is fixed in the emitter, and this is what
-    would notice if it stopped being.
-
-    The external corpus covers it with two files. In tree it covers nothing
-    unless this test exists, because the fixture that carries NaN is
-    hand-written and so is not held to byte identity.
+    CalculiX writes NaN coordinates for the nodes of a network deck and spells
+    it `NaN`; glibc's printf produces `NAN` and Microsoft's `nan`, so the same
+    document would be written three ways. The external corpus covers this with
+    two files; in tree nothing does, because the fixture carrying NaN is
+    hand-written and not held to byte identity.
     """
     lines = ['1C nan coordinates', '2C']
     lines.append(' -1' + f'{1:10d}' + '         NaN' * 3)

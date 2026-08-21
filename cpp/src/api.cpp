@@ -1,22 +1,15 @@
-/* The C ABI.
+/* The C ABI: a thin translation between the header's plain-C surface and the
+ * Document behind it. Two rules hold throughout.
  *
- * Everything here is a thin translation between the header's plain-C surface
- * and the Document behind it. Two rules hold throughout:
+ * No exception escapes -- unwinding out of an `extern "C"` frame into a ctypes
+ * caller is undefined behaviour. `guard()` is how that is spelled, and it
+ * belongs on every entry point that can allocate. Note which those are: a step
+ * is materialised on first access, so a step's *readers* -- n_arrays,
+ * array_info_range, array_data, find_array -- allocate too, which is why all
+ * four went unwrapped.
  *
- *   - No exception escapes. Every entry point that can allocate is wrapped,
- *     because unwinding out of an `extern "C"` frame into a ctypes caller is
- *     undefined behaviour, and the caller most likely to hit it is the one
- *     least able to diagnose it. `guard()` below is how that is spelled;
- *     grep for it before adding an entry point that touches the Document.
- *
- *     Note which entry points allocate. It is not only the ones that build
- *     something: a step is materialised on first access, so the *readers* of
- *     a step -- n_arrays, array_info_range, array_data, find_array -- parse
- *     and allocate too. That is the sharp edge of the lazy path, and these
- *     four went unwrapped for exactly that reason.
- *   - A NULL argument is PVFRD_E_INVALID, never a crash. This library is
- *     bound dynamically from languages with no compiler to check the calls.
- */
+ * A NULL argument is PVFRD_E_INVALID, never a crash: this library is bound
+ * from languages with no compiler to check the calls. */
 
 #include <cstdio>
 #include <cstring>
@@ -44,15 +37,10 @@ namespace {
 
 const pvfrd_open_options kDefaultOptions = {PVFRD_WEDGE_ASIS, 0};
 
-/* Open a path given as UTF-8, which is what the header promises.
- *
- * On Windows that promise needs work: fopen interprets its bytes in the
- * process's active code page, not as UTF-8, so a path containing anything
- * outside ASCII fails to open -- or, worse, opens a different file. Python
- * hands this function UTF-8 (PEP 529), and so does any caller following the
- * header, so the bytes are converted to UTF-16 here and _wfopen is used.
- *
- * Everywhere else, a path is bytes and fopen takes them unchanged. */
+/* Open a path given as UTF-8, as the header promises. On Windows fopen reads
+ * its bytes in the active code page, so anything outside ASCII fails to open
+ * or opens a different file; the bytes are converted to UTF-16 for _wfopen.
+ * Everywhere else a path is bytes and fopen takes them unchanged. */
 std::FILE *open_path(const char *path) {
 #if defined(_WIN32)
   const int wide_length = MultiByteToWideChar(CP_UTF8, 0, path, -1, nullptr, 0);
@@ -93,14 +81,10 @@ void record(std::string message) {
   }
 }
 
-/* Run `body` and translate anything it throws into a status.
- *
- * The mapping is deliberately specific. An earlier version ended in
- * `catch (...) { return PVFRD_E_FORMAT; }`, which reports every unexpected
- * failure -- a library bug, a mutex refusing to lock, an allocation too large
- * to express -- as "the file did not parse as an FRD document". That is a
- * misdiagnosis with consequences: it sends someone to inspect a file that is
- * perfectly good. A fault in here is PVFRD_E_INTERNAL and says so. */
+/* Run `body` and translate anything it throws into a status. Specifically: a
+ * closing `catch (...) { return PVFRD_E_FORMAT; }` would report a library bug
+ * or a failed lock as "the file did not parse", sending someone to inspect a
+ * file that is fine. A fault here is PVFRD_E_INTERNAL and says so. */
 template <typename Body>
 pvfrd_status guard(Body body) {
   try {
@@ -226,17 +210,10 @@ pvfrd_status pvfrd_open_ex(const char *path, const pvfrd_open_options *options, 
 
   std::string buffer;
   const pvfrd_status read_status = guard([&]() -> pvfrd_status {
-    /* Read straight into the string's own storage. The obvious spelling of
-     * this loop puts a `char chunk[1 << 16]` on the stack, and 64 KiB of
-     * stack is more than some perfectly ordinary targets give a whole thread
-     * -- it is the entire default stack under Emscripten, where this
-     * overflowed on the first file it was handed. Growing the destination and
-     * reading into it costs nothing and drops a copy per chunk.
-     *
-     * resize() throws length_error, not bad_alloc, once the total passes
-     * max_size(). That is reachable on a 32-bit or WebAssembly build long
-     * before a 64-bit one, and guard() is what maps it to PVFRD_E_NOMEM
-     * rather than letting it leave through an extern "C" frame. */
+    /* Straight into the string's storage. A `char chunk[1 << 16]` on the
+     * stack is the entire default stack under Emscripten, where it overflowed
+     * on the first file. resize() throws length_error, not bad_alloc, past
+     * max_size() -- reachable on a 32-bit build -- which guard() maps. */
     constexpr size_t kChunk = size_t{1} << 16;
     for (;;) {
       const size_t offset = buffer.size();

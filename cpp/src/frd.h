@@ -17,38 +17,27 @@
 
 namespace pvfrd {
 
-/* How many nodes an element of CalculiX type `code` has, or false if this
- * reader does not know the type.
- *
- * Shared with document.cpp because a binary element record cannot be stepped
- * over without it -- the next record's offset is this one's node count -- and
- * two tables that had to agree about that would be a latent way for a reader
- * and a writer to disagree about the same file. */
+/* Nodes in an element of CalculiX type `code`, false if unknown. Shared with
+ * document.cpp, which cannot step over a binary element record without it;
+ * two tables would be a way for the reader and writer to disagree. */
 bool element_point_count(int64_t code, uint32_t *out);
 
-/* Record the reason for a failure that has no reader to hang it on, so
- * pvfrd_last_error(NULL) can report it. Shared with the writing half, whose
- * failures -- a cell type with no CalculiX equivalent -- are exactly the kind
- * a status code alone cannot explain. */
+/* Record a failure that has no reader to hang it on, for
+ * pvfrd_last_error(NULL). Shared with the writing half. */
 void set_thread_error(std::string message);
 
 /* Where a result block's data lives, so a step can be parsed on demand.
- *
- * The alternative -- parsing every value at open -- is what the reference
- * reader does, and it is why reading one time step of a many-step file costs
- * the whole file there. Recording the byte range costs one pass with no
- * number parsing in it. */
+ * Parsing everything at open is what makes one step of a many-step file cost
+ * the whole file in the reference reader. */
 struct BlockRef {
   std::string name;
   size_t data_begin = 0;  /* offset of the block's first record */
   size_t data_end = 0;    /* offset just past the last record of the run */
   int64_t first_line = 0; /* line number of data_begin, for error messages */
 
-  /* Binary blocks carry their shape here because it cannot be recovered from
-   * the payload. A text record says how many values it has by how many fields
-   * it has; a binary record is an undelimited run of bytes, and the only
-   * statement of its width is the block header that has already gone past by
-   * the time the values are read. */
+  /* Binary blocks carry their shape here: a text record states its width by
+   * its field count, but a binary record is an undelimited run of bytes whose
+   * only description is a header already gone past. */
   int format = 1;            /* 0/1 ASCII, 2 binary float, 3 binary double */
   uint32_t n_components = 0; /* stored components per record, binary only */
 };
@@ -125,10 +114,8 @@ class Document {
   std::vector<std::vector<int64_t>> raw_cells_;
   std::vector<uint8_t> raw_cell_types_;
 
-  /* Decided once, by the first element-face line in the file, and then fixed
-   * for every element after it. Held on the document rather than passed
-   * around because the reference reader stores it on the parse result and
-   * the two must go stale at the same moments. */
+  /* Decided by the first element-face line and fixed thereafter. On the
+   * document, as the reference stores it, so both go stale together. */
   bool is_long_format_ = false;
   bool format_detected_ = false;
 
@@ -153,13 +140,10 @@ class Document {
   mutable std::string last_error_;
 };
 
-/* Derived tensor quantities, shared with the gtest suite.
- *
- * `tensor` is n * 6, in CalculiX order (xx, yy, zz, xy, yz, zx). Each output
- * is n long. The expression order matches the reference implementation's
- * NumPy expression exactly, which is what makes the values bit-identical
- * rather than merely close -- see doc/divergences.md on why the principal
- * stresses are the one exception. */
+/* Derived tensor quantities, shared with the gtest suite. `tensor` is n * 6
+ * in CalculiX order (xx, yy, zz, xy, yz, zx); each output is n long. The
+ * expression order matches the reference's NumPy exactly, which is what makes
+ * these bit-identical; doc/divergences.md covers the one exception. */
 void von_mises_stress(const double *tensor, size_t n, double *mises, double *signed_mises);
 void von_mises_strain(const double *tensor, size_t n, double *mises, double *signed_mises);
 

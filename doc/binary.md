@@ -82,8 +82,9 @@ computation, written by a program neither half of this project wrote. A reader
 decoding binary records at the wrong offset could not accidentally reproduce
 the ASCII file's numbers.
 
-ASCII is the lossy side — `%12.5E`, six significant digits — so the comparison
-is within that rounding rather than bit-exact.
+ASCII is the lossy side — `%12.5E`, six significant digits, and CalculiX casts
+to `float` before printing — so the comparison is within that rounding rather
+than bit-exact.
 
 ### The bands are derived, not fitted
 
@@ -127,10 +128,18 @@ sweep this project ran until `tools/fetch_corpus.py` started collecting the
 files the suite ships rather than only the ones its decks produce.
 
 This library reads its 261 points and 32 cells. Converting it to ASCII
-reproduces `beamp.frd.ref` — CalculiX's own ASCII file of the same model —
-apart from the four header lines recording each run's date and version, and
-the solver produces the same results from either. `doc/writing.md` has that
-experiment.
+reproduces `beamp.frd.ref` — CalculiX's own ASCII file of the same model — to
+14 lines out of 644, and the solver produces the same results from either.
+`doc/writing.md` has that experiment.
+
+The 14 account for themselves completely. Four are header lines recording each
+run's date and version; the two files were built five years apart, one under
+`Version DEVELOPMENT` in 2019 and one under `Version 2.22` in 2024. The other
+ten are the last digit of a coordinate, and **all ten are exactly the float
+cast**: rendering the same doubles through `float32` first reproduces
+`beamp.frd.ref` to the digit, 1,566 values out of 1,566. Nothing else differs
+across that five-year gap, which is a stronger statement about the decode than
+the agreement alone. See `doc/divergences.md` for why the cast is not applied.
 
 ## The declared count, and why ASCII cannot be held to it
 
