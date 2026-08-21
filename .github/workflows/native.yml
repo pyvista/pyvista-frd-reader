@@ -401,6 +401,53 @@ jobs:
           python -m pip install --upgrade pip build
           python -m build --sdist
 
+      - name: PyPI must be willing to render the README
+        # This is `twine check`, which is what gh-action-pypi-publish runs
+        # immediately before uploading -- so without it here, a README that
+        # PyPI refuses is discovered by the release and nowhere else.
+        #
+        # That is not hypothetical. v0.1.0's first attempt failed exactly here:
+        # the speed table's second column was bordered ten characters wide and
+        # its header `pyvista_frd` is eleven, so the text ran into the column
+        # margin and docutils rejected the table. The table had been wrong
+        # since the day it was written and nothing had ever looked, because the
+        # only thing that looks is a step that only runs on a tag.
+        #
+        # A malformed README is not a small failure at that point: the wheels
+        # are built, the bundle is complete, the version is right, and the
+        # release stops one step from the upload.
+        run: |
+          python -m pip install --upgrade twine
+          twine check --strict dist/*.tar.gz
+
+      - name: The README check must be able to fail
+        # A rendering gate that cannot reject anything would have passed on the
+        # broken table too. readme_renderer is the library twine check uses, so
+        # driving it directly tests the same renderer without rebuilding an
+        # sdist: the real README must render, and the README with its second
+        # column narrowed by one -- precisely the defect that stopped v0.1.0 --
+        # must not.
+        run: |
+          python - <<'PYEOF'
+          import sys
+          from readme_renderer.rst import render
+
+          good = open('README.rst').read()
+          bad = good.replace(
+              '=========================  ===========  ==========  =====',
+              '=========================  ==========  ==========  =====',
+          )
+          if bad == good:
+              sys.exit('::error::the control could not find the table it edits; '
+                       'the README changed and this step needs updating')
+
+          if render(good, stream=sys.stderr) is None:
+              sys.exit('::error::the real README does not render')
+          if render(bad, stream=sys.stderr) is not None:
+              sys.exit('::error::the renderer accepted a malformed table')
+          print('the README gate rejects markup PyPI would refuse, as it must')
+          PYEOF
+
       - name: A source install must build the core
         # The sdist has to carry cpp/. If it does not, this install fails --
         # which is the point of having no fallback to degrade to.

@@ -69,12 +69,12 @@ Not why this exists -- multi-language reuse is -- but the question follows the
 language, so it is measured rather than asserted. Against PyVista's reader,
 reading the same file to the same grid:
 
-=========================  ==========  ==========  =====
+=========================  ===========  ==========  =====
 file                       pyvista_frd     pyvista  ratio
-=========================  ==========  ==========  =====
-``mesh.frd`` (0.14 MB)        3.12 ms     8.13 ms   2.6x
-synthetic (12.8 MB)          82.4 ms      534 ms    6.5x
-=========================  ==========  ==========  =====
+=========================  ===========  ==========  =====
+``mesh.frd`` (0.14 MB)         3.12 ms     8.13 ms   2.6x
+synthetic (12.8 MB)            82.4 ms      534 ms   6.5x
+=========================  ===========  ==========  =====
 
 Medians of interleaved runs on one workstation. Treat the ratio as indicative
 and the absolute figures as a property of that machine -- ``benchmarks/read_speed.py``
