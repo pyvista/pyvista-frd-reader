@@ -441,20 +441,71 @@ jobs:
           ls -la dist/
 
       - name: The completeness check must be able to fail
-        # Runs the gate against a directory it should reject, before trusting
+        # Runs the gate against directories it should reject, before trusting
         # the run where it accepts. Otherwise "the gate passed" has the two
         # usual explanations, and only one of them is that the bundle is
         # complete -- the other is that the gate cannot say no any more.
+        #
+        # Both of its arms are checked, because they fail differently. The
+        # empty directory exercises the requirements; the second fixture is
+        # this run's own bundle with one unrepaired wheel added, so the only
+        # thing that can reject it is the arm that rejects bare linux_* tags.
         run: |
           mkdir -p /tmp/empty-dist
           if tools/check_dist.sh /tmp/empty-dist; then
             echo "::error::check_dist.sh accepted an empty directory"
             exit 1
           fi
-          echo "the gate rejects an incomplete bundle, as it must"
+
+          rm -rf /tmp/unrepaired-dist
+          cp -r dist /tmp/unrepaired-dist
+          touch /tmp/unrepaired-dist/pyvista_frd_reader-0-py3-none-linux_x86_64.whl
+          if tools/check_dist.sh /tmp/unrepaired-dist; then
+            echo "::error::check_dist.sh accepted a wheel PyPI would refuse"
+            exit 1
+          fi
+          echo "the gate rejects an incomplete bundle and an unrepaired one, as it must"
 
       - name: Every platform must be represented
         run: tools/check_dist.sh dist
+
+      - name: The version check must be able to fail
+        # Same reasoning as the arm above. This one has two ways to say no and
+        # both are checked, because the two failures it exists to catch are
+        # not the same failure: a bundle at the wrong version, and a bundle
+        # with nothing in it to have a version at all.
+        run: |
+          mkdir -p /tmp/empty-dist
+          if python3 tools/check_version.py dist --expected 0.0.0-not-a-real-version; then
+            echo "::error::check_version.py accepted a version the artefacts do not carry"
+            exit 1
+          fi
+          if python3 tools/check_version.py /tmp/empty-dist; then
+            echo "::error::check_version.py accepted a directory holding no artefacts"
+            exit 1
+          fi
+          echo "the version gate rejects a wrong version and an empty bundle, as it must"
+
+      - name: Every artefact must carry one version
+        # setuptools-scm falls back to 0.0.0.dev0 rather than failing when it
+        # cannot see the repository, so a container that loses the checkout
+        # produces wheels that look fine and disagree with the sdist built on
+        # the runner. That split is visible on any push; the tag comparison in
+        # the release job is not, so it is worth having the half that is.
+        #
+        # The second command is the positive half of the --expected control:
+        # the step above proves the comparison can reject, and this proves it
+        # can still accept. A comparison only ever watched failing could have
+        # become one that always fails, which on a tag reads as a blocked
+        # release with no cause anyone can find.
+        run: |
+          python3 tools/check_version.py dist
+          sdist=$(ls dist/*.tar.gz)
+          sdist=${sdist##*/}
+          version=${sdist#pyvista_frd_reader-}
+          version=${version%.tar.gz}
+          echo "the sdist says $version"
+          python3 tools/check_version.py dist --expected "$version"
 
   release:
     name: Release
@@ -472,6 +523,10 @@ jobs:
       id-token: write # mandatory for trusted publishing
       contents: write # required to create GitHub releases
     steps:
+      # Before the download, not after: checkout cleans the workspace, and
+      # would take the artefacts with it.
+      - uses: actions/checkout@v4
+
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
@@ -482,6 +537,12 @@ jobs:
           find artifacts -name '*.whl' -exec cp {} dist/ \;
           find artifacts -name '*.tar.gz' -exec cp {} dist/ \;
           ls -la dist/
+
+      - name: The artefacts must carry the version being released
+        # The last point at which a wrong version is still recoverable. After
+        # the next step it is on PyPI, which does not allow a version to be
+        # replaced -- and skip-existing means a wrong upload succeeds quietly.
+        run: python3 tools/check_version.py dist --expected "${GITHUB_REF_NAME#v}"
 
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1

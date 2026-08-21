@@ -23,11 +23,26 @@ require() {
   fi
 }
 
-require '*linux*_x86_64.whl'
-require '*linux*_aarch64.whl'
+reject() {
+  # shellcheck disable=SC2086
+  if ls "$dist"/$1 > /dev/null 2>&1; then
+    echo "::error::$dist holds $1: $2"
+    missing=1
+  fi
+}
+
+require '*manylinux*_x86_64.whl'
+require '*manylinux*_aarch64.whl'
 require '*macosx*_x86_64.whl'
 require '*macosx*_arm64.whl'
 require '*win_amd64.whl'
 require '*.tar.gz'
+
+# cibuildwheel's pre-repair output carries the bare linux_* platform tag, and
+# PyPI refuses those. An earlier form of this file asked for '*linux*_x86_64'
+# and so would have accepted one in place of the repaired wheel it was meant
+# to be checking for -- reporting a complete bundle that cannot be uploaded.
+# manylinux is matched without its version, which is the part that goes stale.
+reject '*-linux_*.whl' 'an unrepaired wheel, which PyPI will not accept'
 
 exit $missing
