@@ -132,6 +132,41 @@ apart from the four header lines recording each run's date and version, and
 the solver produces the same results from either. `doc/writing.md` has that
 experiment.
 
+## The declared count, and why ASCII cannot be held to it
+
+A binary block has to trust the record count in its header: there is no
+terminator to scan for, and the count is the only statement of where the
+payload ends. So it is worth knowing how good that number is. Measured across
+the 839-file CalculiX corpus, counting the ASCII blocks where a count field is
+present at all:
+
+| block | header agrees with its records | disagrees |
+| --- | ---: | ---: |
+| `2C`, nodes | 784 | **0** |
+| `3C`, elements | 779 | **5** |
+
+A further 98 headers carry no count field whatsoever.
+
+The five are three files. `concretebeam.frd` declares 10 elements and holds
+110; `shell3.frd` declares 4 and holds 8; `shell4.frd` declares 242 and holds
+968. The ratios give it away — CalculiX expands shell and beam elements into
+solid elements for output, and the header is written with the count from
+before the expansion.
+
+This is the reason a declared-versus-parsed mismatch is **not** an error on
+the ASCII path, and it is worth being explicit that the decision is evidence
+rather than tolerance for its own sake: erroring there would refuse three
+files CalculiX wrote and PyVista reads, and reading all 110 elements of
+`concretebeam.frd` is the correct answer. The reader takes the records it
+finds and ignores the count.
+
+Binary has no such option, which is a real limitation rather than a caveat: a
+binary file whose header count is wrong in the way `concretebeam.frd`'s is
+would be misread, and this library would have no way to notice beyond the
+landing check described above. No such file is known to exist -- CalculiX
+writes the expansion cases in ASCII in every example available here -- but
+nothing rules one out either.
+
 ## What is still thin
 
 - **Format 2, binary `float32`, appears in no file anyone here has found.** It

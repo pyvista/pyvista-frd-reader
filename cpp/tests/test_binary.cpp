@@ -261,3 +261,37 @@ TEST(BinaryTest, ABinaryPayloadRunsStraightIntoTheNextHeader) {
   EXPECT_EQ(pvfrd_n_points(file.get()), 2u);
   EXPECT_EQ(pvfrd_n_cells(file.get()), 1u);
 }
+
+TEST(BinaryTest, AnAsciiHeaderCountIsNotBelievedOverTheRecords) {
+  /* The counterpart to the binary rule above, and the reason the two paths
+   * differ.
+   *
+   * A binary block has to trust its header's record count: there is no
+   * terminator to scan for and the count is the only statement of where the
+   * payload ends. An ASCII block does not have to, and must not. CalculiX
+   * expands shell and beam elements into solid elements for output and writes
+   * the `3C` header with the count from *before* the expansion, so
+   * concretebeam.frd declares 10 elements and holds 110. Measured across its
+   * regression suite: node counts agree 784 times out of 784, element counts
+   * disagree 5 times out of 784.
+   *
+   * Refusing the file, or stopping at the tenth element, would lose 100
+   * elements CalculiX meant to write and PyVista reads. The records are the
+   * truth here; the count is a hint that is sometimes wrong. */
+  Doc file(
+      "    3C                             1                                     1\n"
+      " -1         1   11    0    1\n"
+      " -2         1         2\n"
+      " -1         2   11    0    1\n"
+      " -2         2         3\n"
+      " -3\n"
+      "    2C                             3                                     1\n"
+      " -1    1 0.0 0.0 0.0\n"
+      " -1    2 1.0 0.0 0.0\n"
+      " -1    3 2.0 0.0 0.0\n"
+      " -3\n");
+  ASSERT_EQ(file.status(), PVFRD_OK);
+  EXPECT_EQ(pvfrd_n_cells(file.get()), 2u)
+      << "the header said one element; the block holds two, and both are real";
+  EXPECT_EQ(pvfrd_n_points(file.get()), 3u);
+}
