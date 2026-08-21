@@ -20,6 +20,15 @@ gets them from `numpy.linalg.eigvalsh`, which is LAPACK; this library uses
 cyclic Jacobi, so that the C++ core has no LAPACK dependency and the same
 numbers are available to a caller in any language.
 
+That is not a speed sacrifice, which is the natural assumption. Measured over
+two million tensors, best of five interleaved repeats: Jacobi 238 ns each,
+LAPACK `dsyev` 635 ns — and LAPACK was given every advantage, called directly
+with preallocated workspace and `jobz='N'` so it neither allocates nor
+computes eigenvectors. A 3×3 is all call overhead and no work; LAPACK's
+advantage is asymptotic and there is no asymptote here. The closed-form
+trigonometric solution is faster still at 62 ns, and lands 268 ulp from LAPACK
+where Jacobi lands 9.9, so it does not fit the band below.
+
 Reproducing LAPACK's last bit is not an achievable goal, so the suite states a
 band instead. The band is on the **absolute** difference divided by the
 magnitude of the tensor the eigenvalues came from — not by the eigenvalue.
@@ -49,28 +58,67 @@ and the `mises-reassociated` mutant in `tools/mutate.py`.
 
 ## Behavioural
 
-### Integer fields must be ASCII digits within int64
+### Integer fields must be within int64, and their digits ASCII
 
-PyVista parses node ids and element types with Python's `int()`, which accepts
-digit-group underscores (`1_000`), non-ASCII digit characters, and integers of
-unbounded size. This library accepts an optional sign and ASCII digits, and
-refuses anything outside the range of a signed 64-bit integer.
+PyVista parses node ids and element types with Python's `int()`. Three things
+that accepts and a naive byte parser does not: digit-group underscores
+(`1_000`), non-ASCII digit characters, and integers of unbounded size.
 
-Every case in that gap is one where PyVista accepts a record this library
-drops. No file written by CalculiX contains one.
+**Underscores are no longer a difference.** They are ASCII, the rule is small
+— an underscore must have a digit immediately either side, for `int()` and
+`float()` alike — and this library now applies it. It had been grouped with
+the other two under one heading, which made the cheap third of the entry look
+as settled as the expensive two thirds.
 
-*Pinned by* `TextTest.ParseIntAcceptsWhatPythonIntAccepts` and
-`TextTest.ParseIntBoundaries`.
+What remains:
 
-### Whitespace is the ASCII set
+- **Non-ASCII digits.** `int('١٢٣')` is 123 to Python. Matching that means a
+  Unicode `Nd` table, and it is also in the locale-dependent family below:
+  whether those bytes even become digit characters depends on the decoding.
+- **Unbounded integers.** Python has no upper bound; an `int64` does. This one
+  would not be worth closing even if it were free — a node id past `int64` has
+  nowhere to go in the arrays it indexes, so accepting it would change which
+  record is dropped, not whether one is.
 
-PyVista reads the file as text, so `str.strip()` treats Unicode space
-characters — U+00A0 and friends — as whitespace. This library works on bytes
-and strips the ASCII set only. FRD is an ASCII format; a file with a
-non-breaking space where a space belongs would be tokenised differently by the
-two readers.
+*Pinned by* `TextTest.ParseIntAcceptsWhatPythonIntAccepts`,
+`TextTest.ParseIntBoundaries` and
+`TextTest.UnderscoresBetweenDigitsParseAsPythonParsesThem`.
 
-*Pinned by* `TextTest.NonAsciiWhitespace`.
+### Non-ASCII whitespace has no answer to agree with
+
+PyVista reads the file as text, so `str.strip()` and `str.split()` treat
+Unicode space characters as whitespace. This library works on bytes.
+
+**Within ASCII the two now agree exactly**, which they did not before. Python
+treats `0x1C`–`0x1F`, the C0 information separators, as whitespace for
+`strip()` and `split()`; this library did not, so a `STRESS` row separated by
+`0x1C` was read by PyVista and dropped here — losing the whole array. That
+needed no non-ASCII byte at all, in a format that has none. It was filed under
+this heading and invisible because every fixture in the corpus is ASCII.
+
+Python is also asymmetric in a way worth copying exactly: `'a\x1cb'.split()`
+gives two fields but `int('\x1c42')` raises. So there are two whitespace sets
+here, `is_python_space` and `is_c_space`, and the numeric parsers use the
+narrower one.
+
+**Outside ASCII there is no fixed behaviour to match.** `ref_frd` opens the
+file with `Path.open(errors='replace')` and no encoding, so the bytes are
+decoded with whatever `locale.getpreferredencoding(False)` returns. U+2003
+encoded as UTF-8 is one whitespace character on a UTF-8 machine and three
+non-space characters on a cp1252 one, and cp1252 is still a Windows default.
+The same file yields a different field count on different machines.
+
+So "compatible with PyVista" is not a well-formed goal for these bytes — there
+is no single PyVista behaviour, and matching one locale means diverging from
+another. This library reads bytes, which makes its answer a function of the
+file alone. That is the property being chosen, and it is the only one of the
+available options that is the same everywhere.
+
+*Pinned by* `TextTest.TheInformationSeparatorsAreWhitespaceToStripAndSplit`,
+`TextTest.TheInformationSeparatorsAreNotWhitespaceToIntAndFloat`,
+`TextTest.TheTwoWhitespaceSetsDifferByExactlyTheSeparators` and
+`tests/conformance/test_bytes_and_str.py`, which drives both readers over the
+cases the corpus cannot hold.
 
 ### Field widths are counted in bytes, not characters
 
@@ -79,6 +127,10 @@ split both count bytes here and characters in PyVista. The two agree for any
 ASCII content, which is every element record CalculiX writes — element records
 contain nothing but digits and spaces. A multi-byte character inside one would
 make the readers choose different widths.
+
+This is the same locale-dependent family as the entry above: a multi-byte
+character's *character* count is a property of the decoding, so there is no
+single reference width to agree with either.
 
 *Pinned by* the format-detection tests in `cpp/tests/test_parse.cpp`.
 

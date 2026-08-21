@@ -19,25 +19,55 @@
 
 namespace pvfrd {
 
-/* Python's str.strip() with no argument strips Unicode whitespace. FRD is an
- * ASCII format and this library works on bytes, so the set is the ASCII one.
- * A file carrying U+00A0 where a space belongs would strip differently here;
- * doc/divergences.md records that and TextTest.NonAsciiWhitespace pins it. */
-inline bool is_space(char c) {
+/* Python has two ASCII whitespace sets, and a reader that copies its
+ * behaviour needs both of them.
+ *
+ *   str.strip() and str.split()  0x09-0x0D, 0x1C-0x1F, 0x20
+ *   int() and float()            0x09-0x0D,            0x20
+ *
+ * They differ by exactly the four C0 information separators, 0x1C to 0x1F.
+ * `int('\x1c42')` raises ValueError while `'a\x1cb'.split()` gives two
+ * fields, which reads like an inconsistency and is simply the rule.
+ *
+ * The two are kept apart because that is what Python does, not because a
+ * file has been found that tells them apart. It is worth being precise about
+ * that. After a whitespace split a token cannot contain a separator -- it was
+ * the separator -- so the only route to the distinction is the fixed-width
+ * path, where a field is sliced by position. A separator there is either
+ * interior to the digits, which both sets reject, or leading or trailing, in
+ * which case the reference's chunking fails, falls back to split(), and
+ * arrives at the same number the wide set would have read directly.
+ *
+ * Measured, not assumed: widening strip_numeric to the split() set leaves
+ * every test in this repository green and every differential case in
+ * test_bytes_and_str.py in agreement. So this is correctness by construction
+ * against Python's documented rule, and TextTest pins it at the level where
+ * it is observable -- parse_int refusing "\x1c42" exactly as int() does --
+ * rather than at a file level where nothing yet distinguishes it. If the
+ * fixed-width fallback ever changes, this is where it will start to matter.
+ *
+ * Non-ASCII whitespace is a different question and deliberately not answered
+ * here; see doc/divergences.md, which records why it has no answer. */
+inline bool is_c_space(char c) {
   return c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\v' || c == '\f';
+}
+
+/* What str.strip() and str.split() treat as whitespace, restricted to ASCII. */
+inline bool is_python_space(char c) {
+  return is_c_space(c) || (c >= '\x1c' && c <= '\x1f');
 }
 
 inline std::string_view strip(std::string_view s) {
   size_t b = 0;
   size_t e = s.size();
-  while (b < e && is_space(s[b])) ++b;
-  while (e > b && is_space(s[e - 1])) --e;
+  while (b < e && is_python_space(s[b])) ++b;
+  while (e > b && is_python_space(s[e - 1])) --e;
   return s.substr(b, e - b);
 }
 
 inline std::string_view rstrip(std::string_view s) {
   size_t e = s.size();
-  while (e > 0 && is_space(s[e - 1])) --e;
+  while (e > 0 && is_python_space(s[e - 1])) --e;
   return s.substr(0, e);
 }
 
@@ -52,10 +82,10 @@ inline std::vector<std::string_view> split(std::string_view s) {
   std::vector<std::string_view> out;
   size_t i = 0;
   while (i < s.size()) {
-    while (i < s.size() && is_space(s[i])) ++i;
+    while (i < s.size() && is_python_space(s[i])) ++i;
     if (i >= s.size()) break;
     size_t start = i;
-    while (i < s.size() && !is_space(s[i])) ++i;
+    while (i < s.size() && !is_python_space(s[i])) ++i;
     out.push_back(s.substr(start, i - start));
   }
   return out;
@@ -91,8 +121,41 @@ inline std::string fix_scientific(std::string_view s) {
  * are rejected here, and a value too large for int64 is rejected rather than
  * promoted to arbitrary precision. All three make the reference reader accept
  * a record this one drops. */
+/* The strip int() and float() perform before parsing: the C set, without the
+ * information separators. Separate from strip() on purpose -- see above. */
+inline std::string_view strip_numeric(std::string_view s) {
+  size_t b = 0;
+  size_t e = s.size();
+  while (b < e && is_c_space(s[b])) ++b;
+  while (e > b && is_c_space(s[e - 1])) --e;
+  return s.substr(b, e - b);
+}
+
+inline bool is_digit(char c) {
+  return c >= '0' && c <= '9';
+}
+
+/* Python allows an underscore inside a numeric literal, and the rule is the
+ * same for int() and float(): it must have a digit immediately on both sides.
+ * `1_000` and `.5_0` and `1e1_0` parse; `_1`, `1_`, `1__0`, `1._5`, `1.0e_1`
+ * do not.
+ *
+ * Another ASCII-only divergence, which is the interesting part. It sits in
+ * doc/divergences.md under a heading about int() accepting things outside
+ * ASCII, and this half of it needs no non-ASCII byte at all -- so a file
+ * entirely within the format's character set would read in PyVista and be
+ * dropped here. Same shape as the information separators above. */
+inline bool underscores_are_placed_as_python_allows(std::string_view t) {
+  for (size_t i = 0; i < t.size(); ++i) {
+    if (t[i] != '_') continue;
+    if (i == 0 || i + 1 >= t.size()) return false;
+    if (!is_digit(t[i - 1]) || !is_digit(t[i + 1])) return false;
+  }
+  return true;
+}
+
 inline bool parse_int(std::string_view s, int64_t *out) {
-  std::string_view t = strip(s);
+  std::string_view t = strip_numeric(s);
   if (t.empty()) return false;
   size_t i = 0;
   bool negative = false;
@@ -102,9 +165,18 @@ inline bool parse_int(std::string_view s, int64_t *out) {
   }
   if (i >= t.size()) return false;
   uint64_t magnitude = 0;
+  bool previous_was_digit = false;
   for (; i < t.size(); ++i) {
     char c = t[i];
+    if (c == '_') {
+      /* Between digits only. `previous_was_digit` covers the left side; the
+       * right side has to be looked at directly. */
+      if (!previous_was_digit || i + 1 >= t.size() || !is_digit(t[i + 1])) return false;
+      previous_was_digit = false;
+      continue;
+    }
     if (c < '0' || c > '9') return false;
+    previous_was_digit = true;
     uint64_t digit = static_cast<uint64_t>(c - '0');
     /* Guard before multiplying, not after: signed overflow is undefined and
      * the sanitiser lane would be right to stop on it. */
@@ -126,7 +198,7 @@ inline bool parse_int(std::string_view s, int64_t *out) {
  * The whole token must be consumed. Python's float() also accepts underscores
  * and a "D" exponent is *not* accepted by either -- CalculiX writes "E". */
 inline bool parse_double(std::string_view s, double *out) {
-  std::string_view t = strip(s);
+  std::string_view t = strip_numeric(s);
   if (t.empty()) return false;
   const char *first = t.data();
   const char *last = t.data() + t.size();
@@ -138,7 +210,29 @@ inline bool parse_double(std::string_view s, double *out) {
   }
   double value = 0.0;
   auto result = fast_float::from_chars(first, last, value);
-  if (result.ec != std::errc() || result.ptr != last) return false;
+  if (result.ec == std::errc() && result.ptr == last) {
+    *out = value;
+    return true;
+  }
+
+  /* Only now consider underscores. Doing it this way costs the common case
+   * nothing: a value without one has already been parsed and returned above,
+   * and this branch is reached only by input fast_float has already refused.
+   * A pre-scan for '_' would put a pass over every field in the file on the
+   * hot path in exchange for a case no CalculiX file contains. */
+  const std::string_view remaining(first, static_cast<size_t>(last - first));
+  if (remaining.find('_') == std::string_view::npos) return false;
+  if (!underscores_are_placed_as_python_allows(remaining)) return false;
+
+  std::string without;
+  without.reserve(remaining.size());
+  for (char c : remaining) {
+    if (c != '_') without.push_back(c);
+  }
+  const char *begin = without.data();
+  const char *end = begin + without.size();
+  auto retry = fast_float::from_chars(begin, end, value);
+  if (retry.ec != std::errc() || retry.ptr != end) return false;
   *out = value;
   return true;
 }

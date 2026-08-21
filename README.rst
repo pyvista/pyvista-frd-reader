@@ -72,8 +72,8 @@ reading the same file to the same grid:
 =========================  ==========  ==========  =====
 file                       pyvista_frd     pyvista  ratio
 =========================  ==========  ==========  =====
-``mesh.frd`` (0.14 MB)        3.15 ms     8.14 ms   2.6x
-synthetic (12.8 MB)          85.7 ms      531 ms    6.2x
+``mesh.frd`` (0.14 MB)        3.12 ms     8.13 ms   2.6x
+synthetic (12.8 MB)          82.4 ms      534 ms    6.5x
 =========================  ==========  ==========  =====
 
 Medians of interleaved runs on one workstation. Treat the ratio as indicative
