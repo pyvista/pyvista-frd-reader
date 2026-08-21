@@ -86,6 +86,35 @@ The ratio grows with file size because both readers pay the same fixed cost to
 build the VTK grid at the end; only the parse differs. On a small file that
 fixed cost is most of the work.
 
+Two files is a spot check, not a measurement. Over CalculiX's own regression
+suite -- 688 files, 251 MB, both readers driven to the same end state -- the
+aggregate is **6.08x**, the median file is **3.45x**, and the spread runs from
+0.97x on an empty file to 39.75x on a small one with many time steps. Those
+numbers, and the reason the naive comparison flatters this library, are in
+`doc/parity.md <doc/parity.md>`_.
+
+Parity
+------
+
+This reader is graded against PyVista's, file by file and array by array. As
+well as the fixture corpus in ``tests/``, it has been swept over **1,615 FRD
+files this project did not write** -- CalculiX's regression suite, solved, plus
+every ``.frd`` GitHub's code search will return -- with **no divergences**. The
+method, the findings, and an explicit account of what the sweep does *not*
+establish are in `doc/parity.md <doc/parity.md>`_. Deliberate differences from
+PyVista are listed in `doc/divergences.md <doc/divergences.md>`_.
+
+Credit
+------
+
+The FRD reader this library reimplements was written by
+`Rafal (@3rav) <https://github.com/3rav>`_ in
+`pyvista#8255 <https://github.com/pyvista/pyvista/pull/8255>`_, and every
+behavioural decision reproduced here is one he made first. His reader is
+vendored unchanged as the oracle this project is tested against. The format
+itself is CalculiX's, by Guido Dhondt and Klaus Wittig. See
+`doc/history.md <doc/history.md>`_ for the full lineage and licensing.
+
 Relationship to PyVista's reader
 --------------------------------
 

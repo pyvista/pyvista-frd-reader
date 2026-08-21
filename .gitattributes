@@ -1,0 +1,25 @@
+# FRD fixtures are data, not source. Git must hand them back byte for byte.
+#
+# This is not housekeeping. tests/fixtures/mock_cr.frd and mock_crlf.frd exist
+# to prove the reader handles a lone CR and a CRLF the way Python's text mode
+# does, and without an attribute here git classifies them by guesswork: as of
+# writing, mock_crlf.frd is stored `i/crlf` and considered *text*. A clone with
+# core.autocrlf=true -- which is what the Git for Windows installer sets by
+# default -- or core.autocrlf=input normalises CRLF to LF on the way into the
+# index, which turns that fixture into a byte-for-byte copy of mock.frd.
+#
+# The reason that is worth an attribute rather than a note is what the suite
+# would do next. test_newline_variants_read_identically compares the three
+# encodings against each other, so once they are all LF it passes *because*
+# the fixtures were destroyed. The gate reports green at exactly the moment
+# its subject stops existing. tests/test_fixture_bytes.py is the other half of
+# this: it asserts the endings are still there, so the trivial pass is caught
+# even if this line is ever removed.
+#
+# `binary` is -text -diff: no end-of-line conversion in either direction, and
+# no textual diff. Losing the diff is a real cost when reviewing a hand-written
+# fixture; it is the smaller cost.
+*.frd binary
+
+# Same reasoning, for anything a future fixture generator emits.
+*.dat binary

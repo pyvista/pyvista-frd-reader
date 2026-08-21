@@ -59,6 +59,40 @@ def _is_principal(name: str) -> bool:
     return bool(re.search(r'_PS[123]$', name))
 
 
+def assert_bitwise_equal(actual, expected, err_msg: str = '') -> None:
+    """Assert two float arrays hold the same bits, not merely the same values.
+
+    ``numpy.testing.assert_array_equal`` is the obvious tool and it is not
+    strict enough for a parser, in a way that a sweep over 1,615 files from
+    CalculiX and GitHub made concrete:
+
+    - ``-0.0 == 0.0`` is true in IEEE 754, so a reader that lost the sign of a
+      negative zero would pass. 21 files in CalculiX's own regression suite
+      contain ``-0.00000E+00``, and until ``signed_zero.frd`` was added no
+      fixture in this repository contained one at all -- the suite could not
+      have caught the bug even in principle.
+    - It is *too* lenient about NaN in one direction and can be too strict in
+      another, depending on the helper used. CalculiX writes literal ``NaN``
+      coordinates for network nodes in fluid decks, so this is not a
+      hypothetical value either.
+
+    Comparing the raw bit patterns settles both: a signed zero equals only a
+    signed zero, and a NaN equals a NaN exactly when it is the same NaN.
+    """
+    actual = np.ascontiguousarray(np.asarray(actual, dtype=np.float64))
+    expected = np.ascontiguousarray(np.asarray(expected, dtype=np.float64))
+    assert actual.shape == expected.shape, f'{err_msg}: shape {actual.shape} vs {expected.shape}'
+    if np.array_equal(actual.view(np.uint64), expected.view(np.uint64)):
+        return
+
+    differing = actual.view(np.uint64) != expected.view(np.uint64)
+    count = int(differing.sum())
+    sign_only = int((differing & (actual == 0.0) & (expected == 0.0)).sum())
+    extra = f' ({sign_only} of them differ only in the sign of a zero)' if sign_only else ''
+    message = f'{err_msg}: {count} of {actual.size} values differ bit for bit{extra}'
+    raise AssertionError(message)
+
+
 def _tensor_scale(grid, name: str) -> np.ndarray:
     """Row-wise magnitude of the tensor a principal array was derived from."""
     base = name.rsplit('_', 1)[0]
@@ -75,7 +109,7 @@ def test_corpus_is_not_empty():
     """
     from tests.conftest import corpus
 
-    assert len(corpus()) >= 31, 'the fixture corpus has shrunk'
+    assert len(corpus()) >= 45, 'the fixture corpus has shrunk'
 
 
 def test_mesh_matches_reference(fixture_path: Path):
@@ -89,7 +123,7 @@ def test_mesh_matches_reference(fixture_path: Path):
 
     assert native.n_points == grid.n_points
     assert native.n_cells == grid.n_cells
-    np.testing.assert_array_equal(native.points, np.asarray(grid.points, dtype=np.float64))
+    assert_bitwise_equal(native.points, grid.points, 'points')
     np.testing.assert_array_equal(native.cell_types, grid.celltypes)
     np.testing.assert_array_equal(native.cell_offsets, grid.offset)
     np.testing.assert_array_equal(native.cell_connectivity, grid.cell_connectivity)
@@ -136,8 +170,8 @@ def test_arrays_match_reference(fixture_path: Path):
             assert n_components == expected_components, f'{name}: component count'
 
             if not _is_principal(name):
-                np.testing.assert_array_equal(
-                    actual, reference, err_msg=f'{name} at step {step_time} is not bit-identical'
+                assert_bitwise_equal(
+                    actual, reference, f'{name} at step {step_time} is not bit-identical'
                 )
                 continue
 
