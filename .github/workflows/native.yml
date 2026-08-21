@@ -294,6 +294,30 @@ jobs:
           done
           echo "WebAssembly agrees with native on every fixture"
 
+      - name: The writer must produce the same bytes on every platform
+        run: |
+          # frd_dump compares what the reader *computed*; this compares what
+          # the writer *wrote*, which is a different failure surface. Number
+          # formatting is where C libraries disagree, and one of the
+          # disagreements is not hypothetical: CalculiX spells a NaN `NaN`,
+          # glibc's printf spells it `NAN` and Microsoft's spells it `nan`, so
+          # the emitter fixes the spelling itself rather than leaving it to
+          # whichever libc it was built against. Emscripten's is musl. This is
+          # the step that would notice if that ever stopped being handled.
+          for fixture in tests/fixtures/*.frd tests/fixtures/elements/*.frd \
+                         tests/fixtures/generated/*.frd tests/fixtures/generated/binary/*.frd; do
+            ./cpp/build-host/frd_rewrite "$fixture" native.frd > /dev/null 2> native.err || true
+            node cpp/build-wasm/frd_rewrite.js "$fixture" wasm.frd > /dev/null 2> wasm.err || true
+            if ! cmp -s native.frd wasm.frd; then
+              echo "::error::the writer disagrees between WebAssembly and native for $fixture"
+              cmp native.frd wasm.frd | head -n 5 || true
+              echo "--- wasm stderr ---"
+              cut -c1-400 wasm.err 2>/dev/null | head -n 25 || true
+              exit 1
+            fi
+          done
+          echo "the writer agrees with itself across platforms on every fixture"
+
   wheels:
     name: Wheels (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
