@@ -311,6 +311,42 @@ class LineReader {
     line_number_ = line_number;
   }
 
+  /* Hand back `n` raw bytes at the current position and step past them.
+   *
+   * This is what a binary block needs and a line reader otherwise cannot
+   * give. FRD's binary encoding keeps every block *header* in ASCII and makes
+   * only the records binary, so a file is read line by line until a header
+   * declares a binary payload, then byte by byte for exactly as many bytes as
+   * that header's record count implies, then line by line again.
+   *
+   * The record count is not a convenience here, it is the only thing that
+   * works: CalculiX writes no ` -3` terminator after a binary block (checked
+   * against its own output -- the payload runs straight into the next ASCII
+   * header), and scanning for one would in any case find whatever byte
+   * sequence the floats happened to spell.
+   *
+   * Returns false without moving if the buffer is short, which is how a
+   * truncated file is caught rather than read past.
+   */
+  bool take_bytes(size_t n, const char **out) {
+    if (n > buffer_.size() - pos_) return false;
+    *out = buffer_.data() + pos_;
+    pos_ += n;
+    /* Deliberately not counted as lines. Binary payloads have none, and the
+     * line numbers in this file exist to match warning text the reference
+     * reader emits about *text* records. */
+    return true;
+  }
+
+  /* Step over a line terminator if one is sitting at the current position.
+   * A binary payload is followed immediately by the next header line, but
+   * CalculiX ends the preceding ASCII header with a newline and does not add
+   * another after the records. */
+  void skip_newline() {
+    if (pos_ < buffer_.size() && buffer_[pos_] == '\r') ++pos_;
+    if (pos_ < buffer_.size() && buffer_[pos_] == '\n') ++pos_;
+  }
+
  private:
   std::string_view buffer_;
   size_t pos_ = 0;

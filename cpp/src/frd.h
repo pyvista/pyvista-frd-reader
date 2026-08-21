@@ -25,9 +25,17 @@ namespace pvfrd {
  * number parsing in it. */
 struct BlockRef {
   std::string name;
-  size_t data_begin = 0;  /* offset of the block's first `-1` line */
-  size_t data_end = 0;    /* offset just past the last line of the run */
+  size_t data_begin = 0;  /* offset of the block's first record */
+  size_t data_end = 0;    /* offset just past the last record of the run */
   int64_t first_line = 0; /* line number of data_begin, for error messages */
+
+  /* Binary blocks carry their shape here because it cannot be recovered from
+   * the payload. A text record says how many values it has by how many fields
+   * it has; a binary record is an undelimited run of bytes, and the only
+   * statement of its width is the block header that has already gone past by
+   * the time the values are read. */
+  int format = 1;            /* 0/1 ASCII, 2 binary float, 3 binary double */
+  uint32_t n_components = 0; /* stored components per record, binary only */
 };
 
 struct StepRef {
@@ -84,9 +92,11 @@ class Document {
   void set_last_error(std::string message) const { last_error_ = std::move(message); }
 
  private:
+  void index_results(class LineReader &reader, StepRef *step, int64_t declared_records, int format);
   void parse_nodes(class LineReader &reader);
+  bool parse_nodes_binary(class LineReader &reader, int64_t count, int format);
+  bool parse_elements_binary(class LineReader &reader, int64_t count, int format);
   void parse_elements(class LineReader &reader);
-  void index_results(class LineReader &reader, StepRef *step);
   void build_mesh();
   void materialise(uint64_t step, MaterialisedStep *out) const;
 

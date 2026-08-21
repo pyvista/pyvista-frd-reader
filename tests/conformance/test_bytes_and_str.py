@@ -163,10 +163,21 @@ def test_the_corpus_really_is_all_ascii():
     whatever machine happens to run it -- green on the developer's laptop and
     red on a Windows runner, for a reason nobody would look for here.
     """
+    from tests.conftest import beyond_oracle
     from tests.conftest import corpus
 
     offenders = []
     for path in corpus():
+        # Binary FRD fixtures are exempt, and the exemption is narrow on
+        # purpose. The hazard this test exists for is locale-dependent
+        # *decoding*: PyVista opens FRD as text with no encoding, so a
+        # non-ASCII byte in a file it reads means the sweep grades a different
+        # document on a UTF-8 machine than on a cp1252 one. A binary fixture is
+        # never decoded by anyone -- the oracle cannot read it and this library
+        # reads its records as bytes by construction -- so there is no
+        # encoding for a locale to disagree about.
+        if beyond_oracle(path):
+            continue
         raw = path.read_bytes()
         if any(byte > 0x7F for byte in raw):
             offenders.append(path.name)

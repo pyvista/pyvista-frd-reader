@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstring>
+#include <string>
 #include <utility>
 
 #include "frd.h"
@@ -34,6 +35,133 @@ constexpr std::string_view kComponentDefinition = "-5";
 constexpr std::string_view kNodeBlock = "2C";
 constexpr std::string_view kElementBlock = "3C";
 constexpr std::string_view kResultBlock = "100";
+
+/* The encoding a block's records use, declared by the last field of the
+ * block's header line.
+ *
+ * CalculiX writes this from `frd.c`: the node header carries `one` for ASCII
+ * and `three` for binary, the element header `one` and `two`. The two binary
+ * codes are not interchangeable -- they say how wide a floating point value
+ * is -- and the element block only ever uses 2 because its records hold no
+ * floats at all.
+ *
+ * Reading these is not an extension of the format. It *is* the format; this
+ * library simply did not implement half of it, which is why CalculiX's own
+ * refined-mesh output (`*REFINE MESH` writes binary unconditionally, see
+ * `writenewmesh.c`) read as an empty mesh. */
+constexpr int kFormatShortAscii = 0;
+constexpr int kFormatLongAscii = 1;
+constexpr int kFormatBinaryFloat = 2;
+constexpr int kFormatBinaryDouble = 3;
+
+/* The integer prefix of a token, or -1 if it does not start with a digit.
+ * FRD's component-definition lines run a flag and a name together. */
+int64_t leading_int(std::string_view token) {
+  size_t n = 0;
+  while (n < token.size() && is_digit(token[n])) ++n;
+  if (n == 0) return -1;
+  int64_t value = 0;
+  if (!parse_int(token.substr(0, n), &value)) return -1;
+  return value;
+}
+
+bool is_binary_format(int format) {
+  return format == kFormatBinaryFloat || format == kFormatBinaryDouble;
+}
+
+/* CalculiX writes its binary records with plain fwrite of native types, so
+ * there is no marker to read the byte order from and no portable way to
+ * discover it. Little-endian is assumed, which is right on every platform
+ * this library ships wheels for. memcpy rather than a cast: the payload has
+ * no alignment guarantee and type-punning through a pointer is undefined. */
+int32_t read_i32_le(const char *p) {
+  uint32_t bits = static_cast<uint8_t>(p[0]) |
+                  (static_cast<uint32_t>(static_cast<uint8_t>(p[1])) << 8) |
+                  (static_cast<uint32_t>(static_cast<uint8_t>(p[2])) << 16) |
+                  (static_cast<uint32_t>(static_cast<uint8_t>(p[3])) << 24);
+  int32_t out;
+  std::memcpy(&out, &bits, sizeof(out));
+  return out;
+}
+
+float read_f32_le(const char *p) {
+  uint32_t bits = static_cast<uint8_t>(p[0]) |
+                  (static_cast<uint32_t>(static_cast<uint8_t>(p[1])) << 8) |
+                  (static_cast<uint32_t>(static_cast<uint8_t>(p[2])) << 16) |
+                  (static_cast<uint32_t>(static_cast<uint8_t>(p[3])) << 24);
+  float out;
+  std::memcpy(&out, &bits, sizeof(out));
+  return out;
+}
+
+double read_f64_le(const char *p) {
+  uint64_t bits = 0;
+  for (int i = 7; i >= 0; --i) {
+    bits = (bits << 8) | static_cast<uint8_t>(p[i]);
+  }
+  double out;
+  std::memcpy(&out, &bits, sizeof(out));
+  return out;
+}
+
+/* A block header reads `<key> <count> ... <format>`; both numbers are
+ * optional in files that other tools write, so a missing one falls back to
+ * the ASCII behaviour this library had before. */
+struct BlockHeader {
+  int64_t count = -1;
+  int format = kFormatLongAscii;
+};
+
+/* A result header reads `100CL <id> <time> <count> ... <format>`, so its
+ * record count sits in a different field from the node and element headers.
+ * Kept separate rather than generalised: one function that took the field
+ * index as an argument would put the two conventions side by side in every
+ * call and make the wrong one a plausible typo. */
+/* Whether `offset` sits at the start of something that could be an FRD
+ * header line, used to confirm a computed binary span landed where it should.
+ * End of file counts: the last block in a file is followed by nothing. */
+bool looks_like_header_at(std::string_view buffer, size_t offset) {
+  while (offset < buffer.size() && (buffer[offset] == '\r' || buffer[offset] == '\n')) ++offset;
+  if (offset >= buffer.size()) return true;
+  size_t i = offset;
+  while (i < buffer.size() && buffer[i] == ' ') ++i;
+  if (i >= buffer.size()) return true;
+  return is_digit(buffer[i]) || buffer[i] == '-';
+}
+
+BlockHeader parse_result_header(std::string_view header) {
+  BlockHeader out;
+  std::vector<std::string_view> parts = split(header);
+  if (parts.size() >= 4) {
+    int64_t value = 0;
+    if (parse_int(parts[3], &value)) out.count = value;
+  }
+  if (parts.size() >= 5) {
+    int64_t value = 0;
+    if (parse_int(parts.back(), &value) && value >= kFormatShortAscii &&
+        value <= kFormatBinaryDouble) {
+      out.format = static_cast<int>(value);
+    }
+  }
+  return out;
+}
+
+BlockHeader parse_block_header(std::string_view header) {
+  BlockHeader out;
+  std::vector<std::string_view> parts = split(header);
+  if (parts.size() >= 2) {
+    int64_t value = 0;
+    if (parse_int(parts[1], &value)) out.count = value;
+  }
+  if (parts.size() >= 3) {
+    int64_t value = 0;
+    if (parse_int(parts.back(), &value) && value >= kFormatShortAscii &&
+        value <= kFormatBinaryDouble) {
+      out.format = static_cast<int>(value);
+    }
+  }
+  return out;
+}
 
 struct CellSpec {
   uint8_t vtk_type;
@@ -176,6 +304,85 @@ void Document::parse_nodes(LineReader &reader) {
   }
 }
 
+/* Nodes, binary. One record is a 4-byte id followed by three coordinates,
+ * each 4 bytes under format 2 and 8 under format 3.
+ *
+ * Returns false on a short buffer, which the caller turns into an error. A
+ * truncated binary block used to produce an empty mesh and no complaint --
+ * the header would say 2195 nodes and the reader would hand back nothing --
+ * and silence is the worse failure of the two. */
+bool Document::parse_nodes_binary(LineReader &reader, int64_t count, int format) {
+  if (count < 0) return false;
+  const size_t value_size = (format == kFormatBinaryDouble) ? 8 : 4;
+  const size_t record = 4 + 3 * value_size;
+  const char *p = nullptr;
+  if (!reader.take_bytes(static_cast<size_t>(count) * record, &p)) return false;
+
+  raw_node_ids_.reserve(raw_node_ids_.size() + static_cast<size_t>(count));
+  raw_node_xyz_.reserve(raw_node_xyz_.size() + static_cast<size_t>(count) * 3);
+
+  for (int64_t i = 0; i < count; ++i, p += record) {
+    const int64_t nid = read_i32_le(p);
+    double xyz[3];
+    for (int k = 0; k < 3; ++k) {
+      const char *v = p + 4 + static_cast<ptrdiff_t>(k) * static_cast<ptrdiff_t>(value_size);
+      xyz[k] = (value_size == 8) ? read_f64_le(v) : static_cast<double>(read_f32_le(v));
+    }
+    auto it = raw_node_slot_.find(nid);
+    if (it == raw_node_slot_.end()) {
+      raw_node_slot_.emplace(nid, raw_node_ids_.size());
+      raw_node_ids_.push_back(nid);
+      raw_node_xyz_.insert(raw_node_xyz_.end(), xyz, xyz + 3);
+    } else {
+      /* A repeated id overwrites, matching the ASCII path exactly. */
+      std::copy(xyz, xyz + 3, raw_node_xyz_.begin() + static_cast<ptrdiff_t>(it->second * 3));
+    }
+  }
+  reader.skip_newline();
+  return true;
+}
+
+/* Elements, binary. One record is element number, type, group and material as
+ * four 4-byte integers, then the connectivity as one 4-byte integer per node.
+ *
+ * The connectivity is written in the same permuted order as the ASCII branch
+ * -- `frd.c` emits the identical index sequence in both -- so `permute` does
+ * the same job here and the quadratic orderings need no separate treatment. */
+bool Document::parse_elements_binary(LineReader &reader, int64_t count, int format) {
+  (void)format; /* element records hold no floats; only 2 is ever written */
+  if (count < 0) return false;
+
+  std::vector<int64_t> node_ids;
+  for (int64_t i = 0; i < count; ++i) {
+    const char *head = nullptr;
+    if (!reader.take_bytes(16, &head)) return false;
+    const int64_t code = read_i32_le(head + 4);
+
+    CellSpec spec{0, 0};
+    if (!cell_spec_for(code, &spec)) {
+      /* Unlike the ASCII path this cannot skip the record and carry on: the
+       * next record's position is only known from this one's node count, and
+       * an unknown type means that count is unknown too. Everything after it
+       * is unreadable, so say so rather than resynchronising onto noise. */
+      diagnostics_.push_back({PVFRD_DIAG_UNSUPPORTED_ELEMENT, static_cast<int32_t>(code),
+                              reader.line_number(), -1, -1});
+      return false;
+    }
+
+    const char *body = nullptr;
+    if (!reader.take_bytes(static_cast<size_t>(spec.n_points) * 4, &body)) return false;
+    node_ids.clear();
+    node_ids.reserve(spec.n_points);
+    for (uint32_t k = 0; k < spec.n_points; ++k) {
+      node_ids.push_back(read_i32_le(body + static_cast<ptrdiff_t>(k) * 4));
+    }
+    raw_cells_.push_back(permute(node_ids, code, spec.n_points, options_.wedge_order));
+    raw_cell_types_.push_back(spec.vtk_type);
+  }
+  reader.skip_newline();
+  return true;
+}
+
 void Document::parse_elements(LineReader &reader) {
   uint32_t needed = 0;
   std::vector<int64_t> node_ids;
@@ -274,7 +481,8 @@ void Document::parse_elements(LineReader &reader) {
    * behavioural difference in the direction users notice. */
 }
 
-void Document::index_results(LineReader &reader, StepRef *step) {
+void Document::index_results(LineReader &reader, StepRef *step, int64_t declared_records,
+                             int format) {
   std::string name = "Unknown";
   std::string_view line;
 
@@ -284,6 +492,66 @@ void Document::index_results(LineReader &reader, StepRef *step) {
     if (starts_with(s, kAttributeHeader)) {
       std::vector<std::string_view> parts = split(s);
       if (parts.size() >= 2) name = std::string(parts[1]);
+
+      if (is_binary_format(format)) {
+        /* Binary blocks have to be measured here, while the header is still
+         * in hand. There is no `-1` marker to find the records by and no
+         * ` -3` to find their end by -- CalculiX writes the terminator only
+         * in ASCII mode (`frd.c`: `if(strcmp1(output,"asc")==0)`), so the
+         * payload runs straight into the next block's header line. */
+        int64_t declared = 0;
+        if (parts.size() < 3 || !parse_int(parts[2], &declared) || declared < 0) return;
+
+        /* CalculiX writes exactly `declared` component definitions, and the
+         * payload begins after the last of them. Some are computed by the
+         * postprocessor rather than stored -- a displacement block declares
+         * four and writes three, because ALL is the magnitude -- and those
+         * carry a fifth field marking them as such. Counting the stored ones
+         * is what gives the record its width. */
+        uint32_t stored = 0;
+        for (int64_t i = 0; i < declared; ++i) {
+          std::string_view definition;
+          if (!reader.next(&definition)) return;
+          std::vector<std::string_view> fields = split(strip(definition));
+          if (!starts_with(strip(definition), kComponentDefinition)) return;
+          /* The `iexist` flag and the component's name are printed with no
+           * separator between them -- CalculiX writes the line literally as
+           * `" -5  ALL         1    2    0    0    1ALL"` -- so the field
+           * splits as `1ALL` and will not parse as an integer. Reading its
+           * leading digits is the whole trick, and getting it wrong is not
+           * loud: it makes a displacement block four components wide instead
+           * of three, and every record after the first is then read from the
+           * wrong offset. */
+          const bool derived = fields.size() >= 7 && leading_int(fields[6]) == 1;
+          if (!derived) ++stored;
+        }
+        if (stored == 0) return;
+
+        const size_t value_size = (format == kFormatBinaryDouble) ? 8 : 4;
+        const size_t record = 4 + static_cast<size_t>(stored) * value_size;
+        const size_t span = static_cast<size_t>(declared_records) * record;
+
+        BlockRef block;
+        block.name = name;
+        block.format = format;
+        block.n_components = stored;
+        block.data_begin = reader.position();
+        block.first_line = reader.line_number();
+        const char *ignored = nullptr;
+        if (!reader.take_bytes(span, &ignored)) return; /* truncated; drop the block */
+        block.data_end = reader.position();
+
+        /* The record width was computed, not read, so check where it landed.
+         * A binary payload is followed immediately by another ASCII header --
+         * or by the end of the file -- and every FRD header line begins with
+         * spaces and then a digit or a minus. Landing anywhere else means the
+         * component count was wrong, and the alternative to noticing is
+         * handing back numbers decoded from the middle of other numbers. */
+        if (!looks_like_header_at(buffer_, reader.position())) return;
+        reader.skip_newline();
+        step->blocks.push_back(std::move(block));
+        return;
+      }
 
     } else if (starts_with(s, kComponentDefinition)) {
       continue;
@@ -367,9 +635,31 @@ pvfrd_status Document::parse() {
   while (reader.next(&line)) {
     std::string_view s = strip(line);
     if (starts_with(s, kNodeBlock)) {
-      parse_nodes(reader);
+      const BlockHeader header = parse_block_header(s);
+      if (is_binary_format(header.format)) {
+        if (!parse_nodes_binary(reader, header.count, header.format)) {
+          set_last_error("truncated binary node block: the header declares " +
+                         std::to_string(header.count) + " nodes in format " +
+                         std::to_string(header.format) +
+                         ", and the file does not hold that many records");
+          return PVFRD_E_FORMAT;
+        }
+      } else {
+        parse_nodes(reader);
+      }
     } else if (starts_with(s, kElementBlock)) {
-      parse_elements(reader);
+      const BlockHeader header = parse_block_header(s);
+      if (is_binary_format(header.format)) {
+        if (!parse_elements_binary(reader, header.count, header.format)) {
+          set_last_error("unreadable binary element block: the header declares " +
+                         std::to_string(header.count) +
+                         " elements, and the records either run past the end of the file or "
+                         "name an element type whose node count this reader does not know");
+          return PVFRD_E_FORMAT;
+        }
+      } else {
+        parse_elements(reader);
+      }
     } else if (starts_with(s, kResultBlock)) {
       /* The step exists from the moment its header is seen, even if the
        * block turns out to hold nothing. A file's time-step list is a
@@ -382,7 +672,8 @@ pvfrd_status Document::parse() {
         steps_.push_back(std::move(step));
         it = step_index_.emplace(time, steps_.size() - 1).first;
       }
-      index_results(reader, &steps_[it->second]);
+      const BlockHeader result_header = parse_result_header(s);
+      index_results(reader, &steps_[it->second], result_header.count, result_header.format);
     }
   }
 
@@ -417,7 +708,39 @@ struct BlockValues {
   }
 };
 
+/* A binary result block: `count` records of a 4-byte node id followed by
+ * `n_components` values, each 4 bytes under format 2 and 8 under format 3.
+ *
+ * The record count is not stored, because it does not need to be: the block's
+ * byte range was fixed when it was indexed, and dividing it by the record
+ * size is exact for a well-formed block. A trailing partial record means the
+ * file is truncated, and the loop stops rather than reading past the end. */
+void parse_binary_block_values(std::string_view buffer, const BlockRef &block, BlockValues *out) {
+  const size_t value_size = (block.format == kFormatBinaryDouble) ? 8 : 4;
+  const size_t record = 4 + static_cast<size_t>(block.n_components) * value_size;
+  if (record == 4 || block.data_end <= block.data_begin) return;
+
+  const char *p = buffer.data() + block.data_begin;
+  const size_t span = block.data_end - block.data_begin;
+
+  for (size_t offset = 0; offset + record <= span; offset += record) {
+    const char *rec = p + offset;
+    const int64_t nid = read_i32_le(rec);
+    std::vector<double> values;
+    values.reserve(block.n_components);
+    for (uint32_t k = 0; k < block.n_components; ++k) {
+      const char *v = rec + 4 + static_cast<ptrdiff_t>(k) * static_cast<ptrdiff_t>(value_size);
+      values.push_back(value_size == 8 ? read_f64_le(v) : static_cast<double>(read_f32_le(v)));
+    }
+    out->set(nid, std::move(values));
+  }
+}
+
 void parse_block_values(std::string_view buffer, const BlockRef &block, BlockValues *out) {
+  if (is_binary_format(block.format)) {
+    parse_binary_block_values(buffer, block, out);
+    return;
+  }
   LineReader reader(buffer);
   reader.seek(block.data_begin, block.first_line - 1);
 

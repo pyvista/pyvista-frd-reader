@@ -17,6 +17,30 @@ UNREADABLE = {
 }
 
 
+def beyond_oracle(path: Path) -> bool:
+    """True for fixtures this library reads and PyVista's reader cannot.
+
+    Binary FRD is the whole of this category. PyVista parses FRD as text, so a
+    binary file yields it nothing -- not an error, a silent zero-node parse --
+    and every test that compares the two readers would be comparing our answer
+    against an empty one.
+
+    Skipping them from the *parity* suite is therefore right and would be
+    dangerous on its own: a fixture that no test grades is a fixture that has
+    stopped earning its place. They are graded instead by
+    ``tests/test_binary_format.py``, against the ASCII file CalculiX wrote from
+    the same input deck, which is a stronger comparison than the oracle offers
+    anyway -- two encodings of one computation, neither of them ours.
+
+    Decided by directory rather than by sniffing the bytes: a fixture that
+    stopped being binary would then quietly rejoin the parity suite and start
+    being graded against an oracle that agrees with it, which is exactly the
+    kind of silent reclassification the rest of this suite goes to some length
+    to prevent.
+    """
+    return path.parent.name == 'binary'
+
+
 def corpus() -> list[Path]:
     """Every FRD file in the corpus, in a stable order.
 

@@ -82,6 +82,7 @@ if(PVFRD_BUILD_TESTS)
   add_executable(pvfrd_tests
     tests/test_text.cpp
     tests/test_derived.cpp
+    tests/test_binary.cpp
     tests/test_parse.cpp
     tests/test_api.cpp
     tests/test_exceptions.cpp

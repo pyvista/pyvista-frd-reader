@@ -175,11 +175,27 @@ def compare(path: Path) -> Result:  # noqa: PLR0911
                             f'both refuse the file but not alike: {grid_error!r} vs {ours!r}'
                         ]
                 else:
-                    result.verdict = 'differ'
-                    result.detail = grid_error
-                    result.differences = [
-                        'the oracle refuses to build a grid from this file; this library does not'
-                    ]
+                    # This library read a file PyVista cannot. Until binary FRD
+                    # was implemented that combination could only mean a bug,
+                    # so it was folded into `differ`; now it is the expected
+                    # outcome for a whole class of real files and needs saying
+                    # separately. Calling it a divergence would report the
+                    # capability as a defect, and calling it agreement would
+                    # bury the one number worth knowing -- how many files this
+                    # reader can open and the reference cannot.
+                    native = _capi.NativeFile(str(path), wedge_order=_default_wedge_order())
+                    try:
+                        result.verdict = 'beyond-oracle'
+                        result.n_points = int(native.n_points)
+                        result.n_cells = int(native.n_cells)
+                        result.n_steps = int(native.n_steps)
+                        result.detail = (
+                            f'{grid_error} -- this library reads it: '
+                            f'{native.n_points} points, {native.n_cells} cells, '
+                            f'{native.n_steps} steps'
+                        )
+                    finally:
+                        native.close()
                 return result
 
             return _compare_contents(result, data, native)
@@ -359,7 +375,7 @@ def main() -> int:
     # `both-decline` and `both-refuse` are agreements: the two readers reached
     # the same conclusion about a file neither should read. Only a genuine
     # disagreement, or a fault in the sweep itself, is a failure.
-    agreeing = {'agree', 'both-decline', 'both-refuse'}
+    agreeing = {'agree', 'both-decline', 'both-refuse', 'beyond-oracle'}
     return 0 if set(counts) <= agreeing else 1
 
 

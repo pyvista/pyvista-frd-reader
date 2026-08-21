@@ -98,7 +98,18 @@ TEST(ApiTest, NullArgumentsAreRejectedNotDereferenced) {
   EXPECT_EQ(pvfrd_n_diagnostics(nullptr), 0u);
   EXPECT_EQ(pvfrd_n_steps(nullptr), 0u);
   EXPECT_EQ(pvfrd_find_array(nullptr, 0, "x"), -1);
-  EXPECT_STREQ(pvfrd_last_error(nullptr), "");
+  EXPECT_NE(pvfrd_last_error(nullptr), nullptr);
+
+  /* `pvfrd_last_error(NULL)` is documented as the last failure recorded on
+   * the *calling* thread, so "it is empty" is a claim about that thread's
+   * history and not about null-argument handling. Asserting it here passed
+   * only for as long as no earlier test in the binary happened to record a
+   * failure -- adding a file of tests that open malformed documents was
+   * enough to break it, which makes the assertion a statement about link
+   * order rather than about the library. A thread that has not failed yet is
+   * the precondition, so the test makes one. */
+  std::thread([] { EXPECT_STREQ(pvfrd_last_error(nullptr), ""); }).join();
+
   pvfrd_close(nullptr); /* must be a no-op, not a free of garbage */
 }
 
