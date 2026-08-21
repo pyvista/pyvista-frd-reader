@@ -178,9 +178,12 @@ nothing rules one out either.
 
 ## What is still thin
 
-- **Format 2, binary `float32`, appears in no file anyone here has found.** It
-  is implemented from the format's documented meaning and is checked only by
-  this library reading back what it wrote.
+- **Format 2, binary `float32`, appears in no file anyone here has found.** A
+  header census over all 1,766 external files finds format 1 in 1,070 of them,
+  format 3 in exactly one, and format 0 and format 2 in none. Both are
+  implemented from the format's documented meaning and checked only by this
+  library reading back what it wrote. The in-tree fixtures do not help: they
+  carry codes 1 and 3 only. `doc/writing.md` has the table.
 - **Binary element blocks** appear only in files this project generates.
 - **The whole binary tier rests on twelve decks and one published file.** Every
   one of them is a small mesh from a linear-elastic analysis.
