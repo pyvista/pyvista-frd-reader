@@ -19,6 +19,12 @@ from ._capi import ABI_VERSION as ABI_VERSION
 from ._capi import Diagnostic as Diagnostic
 from ._capi import DiagnosticKind as DiagnosticKind
 from ._capi import FRDError as FRDError
+from ._capi import FRDFormatError as FRDFormatError
+from ._capi import FRDInternalError as FRDInternalError
+from ._capi import FRDInvalidArgumentError as FRDInvalidArgumentError
+from ._capi import FRDMemoryError as FRDMemoryError
+from ._capi import FRDRaggedArrayError as FRDRaggedArrayError
+from ._capi import FRDRangeError as FRDRangeError
 from ._capi import NativeFile as NativeFile
 from ._capi import NativeUnavailableError as NativeUnavailableError
 from ._capi import library_path as library_path
@@ -37,6 +43,12 @@ __all__ = [
     'Diagnostic',
     'DiagnosticKind',
     'FRDError',
+    'FRDFormatError',
+    'FRDInternalError',
+    'FRDInvalidArgumentError',
+    'FRDMemoryError',
+    'FRDRaggedArrayError',
+    'FRDRangeError',
     'FRDReader',
     'NativeFile',
     'NativeUnavailableError',

@@ -84,6 +84,7 @@ if(PVFRD_BUILD_TESTS)
     tests/test_derived.cpp
     tests/test_parse.cpp
     tests/test_api.cpp
+    tests/test_exceptions.cpp
     ${PVFRD_SOURCES})
   target_include_directories(pvfrd_tests PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include

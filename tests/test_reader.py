@@ -338,9 +338,85 @@ def test_arrays_outlive_the_reader(mock_frd: Path):
     np.testing.assert_allclose(mesh.point_data['STRESS_PS1'], 30.0)
 
 
-def test_missing_file_raises():
-    with pytest.raises(pyvista_frd.FRDError, match='could not be opened'):
+def test_missing_file_raises_what_pyvista_raises():
+    """A missing file is the operating system's news, not this library's.
+
+    PyVista raises FileNotFoundError from both ``pv.read`` and
+    ``pv.get_reader``, so raising an FRDError here would have been a
+    divergence -- an undocumented one, since it was never in
+    doc/divergences.md. The native core can only report PVFRD_E_IO, one code
+    covering missing, unreadable and not-a-file; the binding asks Python to
+    reproduce the failure and lets the real OSError through.
+    """
+    with pytest.raises(FileNotFoundError):
         FRDReader(FIXTURE_DIR / 'not-here.frd')
+
+
+def test_a_missing_file_still_carries_the_native_reason(tmp_path):
+    """The OSError is Python's, but the core's account is not thrown away."""
+    try:
+        FRDReader(tmp_path / 'not-here.frd')
+    except FileNotFoundError as exc:
+        notes = getattr(exc, '__notes__', [])
+        if hasattr(exc, 'add_note'):  # Python 3.11+
+            assert any('pyvista_frd' in note for note in notes), notes
+    else:  # pragma: no cover
+        pytest.fail('a missing file must raise')
+
+
+def test_a_directory_raises_the_directory_error(tmp_path):
+    """PVFRD_E_IO covers more than "missing", and so must the translation.
+
+    OSError deliberately, and not a narrower type: Linux raises
+    IsADirectoryError here and Windows raises PermissionError. Naming either
+    one would make this a test that passes on one platform and fails on the
+    other for a reason that has nothing to do with this library. What is being
+    asserted is the part that does not vary -- a directory that exists is not
+    reported as a file that is missing.
+    """
+    with pytest.raises(OSError) as caught:  # noqa: PT011 - see above
+        FRDReader(tmp_path)
+    assert not isinstance(caught.value, FileNotFoundError), (
+        'a directory that exists must not be reported as a missing file'
+    )
+
+
+@pytest.mark.parametrize(
+    ('exception', 'builtin'),
+    [
+        (pyvista_frd.FRDFormatError, ValueError),
+        (pyvista_frd.FRDRaggedArrayError, ValueError),
+        (pyvista_frd.FRDRangeError, IndexError),
+        (pyvista_frd.FRDInvalidArgumentError, ValueError),
+        (pyvista_frd.FRDMemoryError, MemoryError),
+    ],
+)
+def test_every_error_is_both_an_frderror_and_the_obvious_builtin(exception, builtin):
+    """Catching by either name has to work.
+
+    ``except FRDError`` for a caller who wants everything this library can go
+    wrong with, and the built-in for a caller writing ordinary Python who
+    should not have to learn a status-code vocabulary to handle an index out
+    of range.
+    """
+    assert issubclass(exception, pyvista_frd.FRDError)
+    assert issubclass(exception, builtin)
+
+
+def test_an_internal_fault_is_not_a_format_error():
+    """A library bug must not be reportable as a bad file.
+
+    Someone told their file did not parse goes and inspects the file. If the
+    fault was ours, that is a wasted afternoon and a bug report we never get.
+    """
+    assert not issubclass(pyvista_frd.FRDInternalError, pyvista_frd.FRDFormatError)
+    assert issubclass(pyvista_frd.FRDInternalError, pyvista_frd.FRDError)
+
+
+def test_an_out_of_range_step_raises_an_index_error():
+    reader = FRDReader(FIXTURE_DIR / 'mesh.frd')
+    with pytest.raises(IndexError):
+        reader._file.array(99, 0)
 
 
 def test_ctypes_struct_layouts_match_the_library():

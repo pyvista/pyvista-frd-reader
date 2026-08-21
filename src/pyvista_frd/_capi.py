@@ -49,6 +49,12 @@ __all__ = [
     'Diagnostic',
     'DiagnosticKind',
     'FRDError',
+    'FRDFormatError',
+    'FRDInternalError',
+    'FRDInvalidArgumentError',
+    'FRDMemoryError',
+    'FRDRaggedArrayError',
+    'FRDRangeError',
     'NativeFile',
     'NativeUnavailableError',
     'library_path',
@@ -65,13 +71,22 @@ WEDGE_SWAP = 1
 _LIBRARY_ENV_VAR = 'PVFRD_LIBRARY'
 
 _STATUS_OK = 0
+_STATUS_IO = 1
+_STATUS_FORMAT = 2
+_STATUS_RANGE = 3
+_STATUS_NOMEM = 4
+_STATUS_INVALID = 5
+_STATUS_RAGGED = 6
+_STATUS_INTERNAL = 7
+
 _STATUS_NAMES = {
-    1: 'the file could not be opened or read',
-    2: 'the file did not parse as an FRD document',
-    3: 'index out of range',
-    4: 'out of memory',
-    5: 'invalid argument',
-    6: 'a result block gave two nodes different component counts',
+    _STATUS_IO: 'the file could not be opened or read',
+    _STATUS_FORMAT: 'the file did not parse as an FRD document',
+    _STATUS_RANGE: 'index out of range',
+    _STATUS_NOMEM: 'out of memory',
+    _STATUS_INVALID: 'invalid argument',
+    _STATUS_RAGGED: 'a result block gave two nodes different component counts',
+    _STATUS_INTERNAL: 'an unexpected error inside the library; please report it',
 }
 
 RAW = 0
@@ -79,12 +94,65 @@ DERIVED = 1
 
 
 class FRDError(RuntimeError):
-    """The native library reported a failure."""
+    """The native library reported a failure.
+
+    The base of every error this package raises from the native core, so
+    ``except FRDError`` catches all of them. The subclasses below also inherit
+    the built-in exception a Python caller would reach for -- an index out of
+    range is an ``IndexError``, running out of memory is a ``MemoryError`` --
+    because a C status code is the wrong shape for Python's ``except`` and
+    making callers match on ``err.status`` is asking them to write a switch
+    where the language already has one.
+    """
 
     def __init__(self, status: int, detail: str = '') -> None:
         described = _STATUS_NAMES.get(status, f'unknown status {status}')
         super().__init__(f'{described} ({detail})' if detail else described)
         self.status = status
+
+
+class FRDFormatError(FRDError, ValueError):
+    """The bytes were not a readable FRD document."""
+
+
+class FRDRaggedArrayError(FRDFormatError):
+    """One result block gave two nodes different component counts.
+
+    A subclass of the format error rather than a sibling: it is a statement
+    about the file, and a caller who only wants to know "is this file
+    readable" should not have to name it separately.
+    """
+
+
+class FRDRangeError(FRDError, IndexError):
+    """A step, array or element index was out of range."""
+
+
+class FRDInvalidArgumentError(FRDError, ValueError):
+    """An argument the native core rejected."""
+
+
+class FRDMemoryError(FRDError, MemoryError):
+    """The native core could not allocate."""
+
+
+class FRDInternalError(FRDError):
+    """A fault inside the native library, not a property of the file.
+
+    Distinct from :class:`FRDFormatError` on purpose. Reporting a library bug
+    as a bad file sends the reporter to inspect a file that is fine. If you
+    see this, it is worth an issue.
+    """
+
+
+_STATUS_EXCEPTIONS: dict[int, type[FRDError]] = {
+    _STATUS_FORMAT: FRDFormatError,
+    _STATUS_RANGE: FRDRangeError,
+    _STATUS_NOMEM: FRDMemoryError,
+    _STATUS_INVALID: FRDInvalidArgumentError,
+    _STATUS_RAGGED: FRDRaggedArrayError,
+    _STATUS_INTERNAL: FRDInternalError,
+}
 
 
 class NativeUnavailableError(ImportError):
@@ -331,15 +399,29 @@ def library_path() -> str:
     return _lib_path
 
 
+def _native_detail(handle: c_void_p | None) -> str:
+    """Return the native core's account of the last failure, or ''.
+
+    ``handle`` may be None, and that is the interesting case: a failed open
+    leaves no reader to ask, so the core keeps a thread-local slot for exactly
+    that. Passing None here reads it. Before it existed, the reason for the
+    one failure a caller cannot guess at was dropped, and this module filled
+    the gap by reporting back the path it had just been given.
+    """
+    raw = _lib.pvfrd_last_error(handle)
+    return raw.decode('utf-8', 'replace') if raw else ''
+
+
+def _raise_for_status(status: int, detail: str = '') -> None:
+    """Raise the exception type that matches a native status code."""
+    exception = _STATUS_EXCEPTIONS.get(status, FRDError)
+    raise exception(status, detail)
+
+
 def _check(status: int, handle: c_void_p | None = None) -> None:
     if status == _STATUS_OK:
         return
-    detail = ''
-    if handle is not None:
-        raw = _lib.pvfrd_last_error(handle)
-        if raw:
-            detail = raw.decode('utf-8', 'replace')
-    raise FRDError(status, detail)
+    _raise_for_status(status, _native_detail(handle))
 
 
 def _as_array(pointer, shape: tuple[int, ...], dtype) -> NDArray:  # noqa: ANN001
@@ -358,6 +440,42 @@ def _as_array(pointer, shape: tuple[int, ...], dtype) -> NDArray:  # noqa: ANN00
     return np.frombuffer(buffer.contents, dtype=dtype).reshape(shape).copy()
 
 
+def _raise_for_open_failure(status: int, path: str | os.PathLike[str]) -> None:
+    """Raise the best exception available for a failed open.
+
+    For an I/O failure this deliberately lets Python do the diagnosis. The C
+    ABI can only say PVFRD_E_IO -- one code for "no such file", "permission
+    denied" and "that is a directory" -- and reproducing errno across the
+    boundary would mean inventing a second, worse errno. Python already has
+    the path and already raises the right ``OSError`` subclass for it, so the
+    cheapest correct answer is to ask it. One extra syscall, on the error path
+    only, buys ``except FileNotFoundError`` working the way a caller expects.
+
+    So an unreadable path raises ``FileNotFoundError``, ``PermissionError`` or
+    ``IsADirectoryError`` -- the genuine article, with the native core's
+    account attached as a note where the interpreter supports one -- rather
+    than an FRDError that a caller would have to inspect ``.status`` to
+    understand. I/O is the operating system's news to break, not this
+    library's.
+
+    If the open unexpectedly succeeds on the retry -- a race, or a file the
+    core rejected for a reason the OS does not share -- the native status
+    stands rather than being papered over.
+    """
+    if status == _STATUS_IO:
+        try:
+            with Path(path).open('rb'):
+                pass
+        except OSError as exc:
+            detail = _native_detail(None)
+            if detail and hasattr(exc, 'add_note'):  # Python 3.11+
+                exc.add_note(f'pyvista_frd: {detail}')
+            raise
+    # Either the status was not an I/O failure, or the file opened fine on the
+    # retry and the native core's objection stands on its own.
+    _raise_for_status(status, _native_detail(None) or str(path))
+
+
 class NativeFile:
     """An open FRD document.
 
@@ -371,7 +489,7 @@ class NativeFile:
         handle = c_void_p()
         status = _lib.pvfrd_open_ex(os.fsencode(os.fspath(path)), byref(options), byref(handle))
         if status != _STATUS_OK:
-            raise FRDError(status, str(path))
+            _raise_for_open_failure(status, path)
         self._handle = handle
         self._path = str(path)
 
@@ -383,7 +501,7 @@ class NativeFile:
         handle = c_void_p()
         status = _lib.pvfrd_open_memory(data, len(data), byref(options), byref(handle))
         if status != _STATUS_OK:
-            raise FRDError(status, '<memory>')
+            _raise_for_status(status, _native_detail(None) or '<memory>')
         self._handle = handle
         self._path = '<memory>'
         return self

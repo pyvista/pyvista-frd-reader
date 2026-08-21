@@ -60,8 +60,14 @@ typedef enum pvfrd_status {
   PVFRD_E_RANGE = 3,   /* index out of range, or destination too small */
   PVFRD_E_NOMEM = 4,   /* allocation failed */
   PVFRD_E_INVALID = 5, /* NULL argument or misuse */
-  PVFRD_E_RAGGED = 6   /* a result block gave two nodes different component
+  PVFRD_E_RAGGED = 6,  /* a result block gave two nodes different component
                         * counts; see pvfrd_last_error for which */
+  PVFRD_E_INTERNAL = 7 /* an unexpected failure inside the library, not a
+                        * property of the file. Distinct from PVFRD_E_FORMAT
+                        * on purpose: reporting a library fault as a bad file
+                        * sends the caller to inspect a file that is fine.
+                        * pvfrd_last_error carries what() where there was
+                        * one. Please report it. */
 } pvfrd_status;
 
 /* CalculiX element type codes, as they appear in the second field of a `-1`
@@ -160,7 +166,15 @@ PVFRD_API const char *pvfrd_status_message(int status);
 
 /* The last failure recorded on this reader, or "" if none. Owned by the
  * reader. Carries the detail a status code cannot -- which array was ragged,
- * which line refused to parse. */
+ * which line refused to parse.
+ *
+ * `file` may be NULL, and that is the case worth knowing about: a failure in
+ * pvfrd_open leaves no reader to ask, which is exactly when the caller most
+ * needs the detail. With NULL this returns the last failure recorded on the
+ * *calling thread* instead, so the open path has somewhere to put it.
+ *
+ * The thread-local message is valid until the next failing call on the same
+ * thread. Copy it if you intend to keep it. Never NULL. */
 PVFRD_API const char *pvfrd_last_error(const pvfrd_file *file);
 
 /* ---- Opening ---- */
