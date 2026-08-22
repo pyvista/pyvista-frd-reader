@@ -21,3 +21,12 @@ src/pyvista_frd/lib/
 # not vendored into an MIT repository. tools/fetch_corpus.py rebuilds them.
 external-corpus/
 *.frd.gz
+
+# Documentation build products
+doc/_build/
+doc/gallery/
+doc/sg_execution_times.rst
+
+# uv writes this when the dev environment is resolved. This is a library, so
+# the resolution that matters is the one the user gets, not the one here.
+uv.lock
