@@ -1,0 +1,9 @@
+/* Keep gallery thumbnails from being cropped to squares. */
+.sphx-glr-thumbcontainer {
+  min-height: 250px;
+}
+
+/* The landing-page cards read better with a little more air. */
+.bd-content .sd-card {
+  border-radius: 0.5rem;
+}
