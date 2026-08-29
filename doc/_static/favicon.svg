@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="pyvista-frd-reader">
+  <rect width="64" height="64" rx="12" fill="#1e3a5f"/>
+  <g fill="none" stroke="#ffffff" stroke-width="3.5" stroke-linejoin="round" stroke-linecap="round">
+    <path d="M32 11 49.3 21v20L32 51 14.7 41V21Z"/>
+    <path d="M32 31 32 11M32 31 49.3 41M32 31 14.7 41"/>
+  </g>
+</svg>

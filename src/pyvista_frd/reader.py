@@ -43,9 +43,6 @@ _INT32_MAX = 2**31 - 1
 # two-dimensional: nodes by components.
 _MAX_ARRAY_RANK = 2
 
-# CalculiX element codes and the names the reference reader prints in its
-# warnings. The C core reports codes; the names live here because they are
-# message text, and message text is the part users and tests read.
 ELEMENT_TYPE_NAMES = {
     1: 'HE8',
     2: 'PE6',
@@ -62,6 +59,13 @@ ELEMENT_TYPE_NAMES = {
     15: 'PY5',
     16: 'PY13',
 }
+"""CalculiX element codes and their names, keyed by the code an FRD file uses.
+
+The code is the second field of an element's ``-1`` record. The names are what
+the reference reader prints in its warnings, so they are message text rather
+than an internal table -- ``PY5`` and ``PY13`` are CalculiX's experimental
+pyramids, C3D5 and C3D13.
+"""
 
 # The reference prints at most this many offending elements per warning.
 _MAX_REPORTED = 3
@@ -99,10 +103,11 @@ def _describe(diagnostic: Diagnostic) -> str:
 
 
 class FRDReader:
-    """Reader for CalculiX FRD ASCII result files (``.frd``).
+    """Reader for CalculiX FRD result files (``.frd``).
 
-    Supported element types: HE8, PE6, PE15, TE4, HE20, TE10, TR3, TR6, QU4,
-    QU8, BE2, BE3, PY5, PY13.
+    All four of the format's encodings are read: both ASCII widths and both
+    binary ones. Supported element types are HE8, PE6, PE15, TE4, HE20, TE10,
+    TR3, TR6, QU4, QU8, BE2, BE3, PY5 and PY13.
 
     For datasets containing 6-component tensors (e.g. STRESS or STRAIN), the
     reader pre-computes and appends the following derived point arrays:

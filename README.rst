@@ -22,6 +22,12 @@ Time steps work the way PyVista's reader does:
    reader.set_active_time_value(1.0)
    mesh = reader.read()
 
+Documentation
+-------------
+
+`frd-reader.pyvista.org <https://frd-reader.pyvista.org>`_ -- a worked gallery,
+the Python API and the C ABI, and how every claim below is checked.
+
 Installation
 ------------
 

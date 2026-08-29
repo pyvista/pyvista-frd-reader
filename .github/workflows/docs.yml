@@ -1,0 +1,70 @@
+name: Documentation
+
+# The gallery renders real scenes and reads real solver output, so this job is
+# also a check that the package works: an example that raises fails the build.
+# It runs on every pull request for that reason, and deploys only from main.
+
+on:
+  pull_request:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build the docs
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0 # setuptools-scm needs the tags to know the version
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+
+      - name: System packages for offscreen rendering
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgl1 libxrender1 libxcursor1 libxinerama1 \
+            libxi6 libsm6 libice6 xvfb
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install .[docs]
+
+      - name: Build
+        run: xvfb-run -a python -m sphinx -b html doc doc/_build/html -W --keep-going -j auto
+
+      - name: Check the custom domain survived
+        run: |
+          test "$(cat doc/_build/html/CNAME)" = "frd-reader.pyvista.org"
+          test -f doc/_build/html/.nojekyll
+
+      - uses: actions/upload-pages-artifact@v4
+        with:
+          path: doc/_build/html
+
+  deploy:
+    name: Deploy to GitHub Pages
+    needs: build
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

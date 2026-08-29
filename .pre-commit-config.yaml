@@ -24,7 +24,7 @@ repos:
     rev: v2.3.0
     hooks:
       - id: codespell
-        exclude: ^(cpp/third_party/|tests/fixtures/|tests/conformance/ref_frd\.py)
+        exclude: ^(cpp/third_party/|tests/fixtures/|doc/_data/|tests/conformance/ref_frd\.py)
         args: ["--ignore-words-list=vertexes,nd,ot,unparseable"]
 
   - repo: https://github.com/pre-commit/pre-commit-hooks
@@ -35,10 +35,10 @@ repos:
       - id: check-merge-conflict
       - id: check-yaml
       - id: end-of-file-fixer
-        # Fixtures are byte-exact inputs: "fixing" one changes what is being
-        # tested, and a file with no trailing newline is a case worth having.
-        # The vendored header is upstream's, kept byte-identical so it can be
-        # replaced by re-downloading it.
-        exclude: ^(tests/fixtures/|cpp/third_party/)
+        # Solver output is byte-exact input: "fixing" one changes what is being
+        # tested, and FRD pads its header records out to a fixed width, so
+        # stripping trailing spaces rewrites the format. The vendored header is
+        # upstream's, kept byte-identical so it can be replaced by re-downloading.
+        exclude: ^(tests/fixtures/|doc/_data/|cpp/third_party/)
       - id: trailing-whitespace
-        exclude: ^(tests/fixtures/|cpp/third_party/)
+        exclude: ^(tests/fixtures/|doc/_data/|cpp/third_party/)
