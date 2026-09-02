@@ -1,226 +1,140 @@
-# Where this reader differs from PyVista's
+# Differences from PyVista
 
-This library exists to read the files PyVista reads and produce the arrays
-PyVista produces. Everywhere the two differ, it is on purpose, and it is
-listed here with the test that pins it. A difference not on this list is a
-bug — please report it.
+The conformance suite expects this reader to match PyVista unless a difference
+is listed here. Report any unlisted difference as a bug.
 
-Two kinds of entry appear below. **Behavioural** differences change what a
-caller gets back. **Numerical** differences change the last bits of a value.
-They are not interchangeable, and the conformance suite treats them
-differently: behavioural agreement is asserted exactly, and only the one
-numerical entry is given a tolerance.
+Behavioral differences change the returned data or error. Numerical
+differences affect floating-point results and use an explicit tolerance. The
+final section covers differences between this writer and CalculiX.
 
-A third section at the end is about the **writer**, and its reference is
-CalculiX rather than PyVista.
+## Numerical difference
 
-## Numerical
+### Principal values use a different eigensolver
 
-### Principal stresses and strains agree to within 32 ulp of the tensor
+`<NAME>_PS1`, `_PS2`, and `_PS3` are the eigenvalues of a symmetric 3 by 3
+tensor. PyVista uses `numpy.linalg.eigvalsh`, backed by LAPACK. This package
+uses cyclic Jacobi so the C++ library does not depend on LAPACK.
 
-`<NAME>_PS1`, `_PS2` and `_PS3` are eigenvalues of a symmetric 3×3. PyVista
-gets them from `numpy.linalg.eigvalsh`, which is LAPACK; this library uses
-cyclic Jacobi, so that the C++ core has no LAPACK dependency and the same
-numbers are available to a caller in any language.
+The conformance tolerance is 32 ulp of the source tensor's magnitude. It is not
+scaled by the eigenvalue because a value near zero has poor relative
+conditioning. The maximum difference in the current corpus is 1.09 ulp of the
+tensor magnitude.
 
-That is not a speed sacrifice, which is the natural assumption. Measured over
-two million tensors, best of five interleaved repeats: Jacobi 238 ns each,
-LAPACK `dsyev` 635 ns — and LAPACK was given every advantage, called directly
-with preallocated workspace and `jobz='N'` so it neither allocates nor
-computes eigenvectors. A 3×3 is all call overhead and no work; LAPACK's
-advantage is asymptotic and there is no asymptote here. The closed-form
-trigonometric solution is faster still at 62 ns, and lands 268 ulp from LAPACK
-where Jacobi lands 9.9, so it does not fit the band below.
+A benchmark over two million tensors, using the best of five interleaved runs,
+measured 238 ns per tensor for Jacobi and 635 ns for LAPACK `dsyev`. The LAPACK
+call used preallocated workspace and `jobz='N'`.
 
-Reproducing LAPACK's last bit is not an achievable goal, so the suite states a
-band instead. The band is on the **absolute** difference divided by the
-magnitude of the tensor the eigenvalues came from — not by the eigenvalue.
-That choice is the substance of this entry:
+Von Mises and signed von Mises values are bit-identical. The C++ expressions
+use PyVista's association order, and floating-point contraction is disabled
+with `-ffp-contract=off` or `/fp:precise`.
 
-> An eigenvalue close to zero has no relative accuracy to speak of. Measured
-> the usual way, a strain tensor of order 1e-20 produces relative differences
-> of order 1e+262 between two implementations that are both correct. Scaling
-> by the tensor's magnitude is the measurement that means something, and it is
-> what backward stability actually promises.
+Pinned by
+`tests/conformance/test_corpus_parity.py::test_arrays_match_reference` and the
+`mises-reassociated` mutant in `tools/mutate.py`.
 
-Measured across the whole corpus, including a real CalculiX file: **maximum
-1.09 ulp** of the tensor magnitude. The band is set at 32 ulp, and every
-failure prints the measured figure alongside the bound, so a red distinguishes
-a regression from a runner with a different LAPACK.
+## Behavioral differences
 
-Everything else is bit-identical, including `<NAME>_Mises` and `_sgMises`.
-That is not luck: the expressions in `cpp/src/derived.cpp` are written in the
-same association order as PyVista's NumPy expression, and the build sets
-`-ffp-contract=off` (`/fp:precise` on MSVC) so the compiler cannot fuse a
-multiply and an add into an FMA. Without that flag the values would differ,
-and only on hardware that has the instruction — a difference no one would
-think to look for.
+### Integers are limited to ASCII and int64
 
-*Pinned by* `tests/conformance/test_corpus_parity.py::test_arrays_match_reference`
-and the `mises-reassociated` mutant in `tools/mutate.py`.
+PyVista uses Python's `int()`, which accepts Unicode digits and arbitrary-size
+integers. This parser accepts ASCII digits and values representable by
+`int64`. It also accepts underscores between digits, matching Python.
 
-## Behavioural
+Node IDs outside `int64` cannot be represented in the arrays they index.
+Supporting Unicode digits would require the file's byte encoding to be known,
+which FRD does not declare.
 
-### Integer fields must be within int64, and their digits ASCII
-
-PyVista parses node ids and element types with Python's `int()`. Three things
-that accepts and a naive byte parser does not: digit-group underscores
-(`1_000`), non-ASCII digit characters, and integers of unbounded size.
-
-**Underscores are no longer a difference.** They are ASCII, the rule is small
-— an underscore must have a digit immediately either side, for `int()` and
-`float()` alike — and this library now applies it. It had been grouped with
-the other two under one heading, which made the cheap third of the entry look
-as settled as the expensive two thirds.
-
-What remains:
-
-- **Non-ASCII digits.** `int('١٢٣')` is 123 to Python. Matching that means a
-  Unicode `Nd` table, and it is also in the locale-dependent family below:
-  whether those bytes even become digit characters depends on the decoding.
-- **Unbounded integers.** Python has no upper bound; an `int64` does. This one
-  would not be worth closing even if it were free — a node id past `int64` has
-  nowhere to go in the arrays it indexes, so accepting it would change which
-  record is dropped, not whether one is.
-
-*Pinned by* `TextTest.ParseIntAcceptsWhatPythonIntAccepts`,
-`TextTest.ParseIntBoundaries` and
+Pinned by `TextTest.ParseIntAcceptsWhatPythonIntAccepts`,
+`TextTest.ParseIntBoundaries`, and
 `TextTest.UnderscoresBetweenDigitsParseAsPythonParsesThem`.
 
-### Non-ASCII whitespace has no answer to agree with
+### Non-ASCII whitespace is not locale-dependent
 
-PyVista reads the file as text, so `str.strip()` and `str.split()` treat
-Unicode space characters as whitespace. This library works on bytes.
+Within ASCII, this parser matches Python's `strip()`, `split()`, `int()`, and
+`float()` behavior, including C0 information separators where applicable.
 
-**Within ASCII the two now agree exactly**, which they did not before. Python
-treats `0x1C`–`0x1F`, the C0 information separators, as whitespace for
-`strip()` and `split()`; this library did not, so a `STRESS` row separated by
-`0x1C` was read by PyVista and dropped here — losing the whole array. That
-needed no non-ASCII byte at all, in a format that has none. It was filed under
-this heading and invisible because every fixture in the corpus is ASCII.
+Outside ASCII, PyVista's behavior depends on the locale used to decode the
+file. The same UTF-8 bytes can be whitespace under a UTF-8 locale and ordinary
+characters under a Windows code page. This package parses bytes directly and
+does not treat non-ASCII bytes as whitespace.
 
-Python is also asymmetric in a way worth copying exactly: `'a\x1cb'.split()`
-gives two fields but `int('\x1c42')` raises. So there are two whitespace sets
-here, `is_python_space` and `is_c_space`, and the numeric parsers use the
-narrower one.
-
-**Outside ASCII there is no fixed behaviour to match.** `ref_frd` opens the
-file with `Path.open(errors='replace')` and no encoding, so the bytes are
-decoded with whatever `locale.getpreferredencoding(False)` returns. U+2003
-encoded as UTF-8 is one whitespace character on a UTF-8 machine and three
-non-space characters on a cp1252 one, and cp1252 is still a Windows default.
-The same file yields a different field count on different machines.
-
-So "compatible with PyVista" is not a well-formed goal for these bytes — there
-is no single PyVista behaviour, and matching one locale means diverging from
-another. This library reads bytes, which makes its answer a function of the
-file alone. That is the property being chosen, and it is the only one of the
-available options that is the same everywhere.
-
-*Pinned by* `TextTest.TheInformationSeparatorsAreWhitespaceToStripAndSplit`,
+Pinned by `TextTest.TheInformationSeparatorsAreWhitespaceToStripAndSplit`,
 `TextTest.TheInformationSeparatorsAreNotWhitespaceToIntAndFloat`,
-`TextTest.TheTwoWhitespaceSetsDifferByExactlyTheSeparators` and
-`tests/conformance/test_bytes_and_str.py`, which drives both readers over the
-cases the corpus cannot hold.
+`TextTest.TheTwoWhitespaceSetsDifferByExactlyTheSeparators`, and
+`tests/conformance/test_bytes_and_str.py`.
 
-### Field widths are counted in bytes, not characters
+### Field widths count bytes
 
-The element-record format test (`> 50` characters) and the fixed-width field
-split both count bytes here and characters in PyVista. The two agree for any
-ASCII content, which is every element record CalculiX writes — element records
-contain nothing but digits and spaces. A multi-byte character inside one would
-make the readers choose different widths.
+Element-record format detection and fixed-width splitting count bytes here and
+decoded characters in PyVista. CalculiX element records contain only ASCII
+digits and spaces, so the readers agree on generated files. A multibyte
+character inside an element record could select a different width.
 
-This is the same locale-dependent family as the entry above: a multi-byte
-character's *character* count is a property of the decoding, so there is no
-single reference width to agree with either.
+Pinned by the format-detection tests in `cpp/tests/test_parse.cpp`.
 
-*Pinned by* the format-detection tests in `cpp/tests/test_parse.cpp`.
+### Ragged result blocks raise an FRD error
 
-### A ragged result block is an error rather than an exception
-
-A block whose first node carries six components and a later node three cannot
-become an array. PyVista raises `ValueError` from NumPy's assignment; this
-library returns `PVFRD_E_RAGGED` with a message naming the node and the two
+If nodes in one result block have different component counts, PyVista raises a
+NumPy `ValueError`. This package raises `FRDRaggedArrayError`, which is also an
+`FRDFormatError` and `ValueError`. Its message includes the node and component
 counts.
 
-The outcome is the same — neither reader stores a short row — but the error
-type and message differ. That difference is deliberate: a status code is what
-crosses a C ABI, and the detail a caller needs is in `pvfrd_last_error`.
+Pinned by
+`tests/conformance/test_corpus_parity.py::test_ragged_block_is_an_error_in_both`.
 
-*Pinned by* `tests/conformance/test_corpus_parity.py::test_ragged_block_is_an_error_in_both`.
+### Wedge ordering is explicit in the C API
 
-### PE6 wedge ordering is an argument, not a lookup
+VTK changed the PE6 linear-wedge node order in VTK 9.7. The Python layer reads
+the installed VTK version and selects the matching order. The C++ core cannot
+infer whether its arrays will be passed to VTK.
 
-PyVista's parser checks `pyvista.vtk_version_info < (9, 7)` inside the parse
-and swaps the linear wedge's node order accordingly. The C++ core cannot see
-which VTK its cells are destined for — it may not be handing them to VTK at
-all — so the choice is an open option, and the Python layer supplies it from
-the installed VTK.
+C and C++ callers must use `PVFRD_WEDGE_SWAP` for VTK earlier than 9.7 and
+`PVFRD_WEDGE_ASIS` for VTK 9.7 or later.
 
-A C++ caller who wants PyVista's answer must set `PVFRD_WEDGE_SWAP` for
-VTK < 9.7 and `PVFRD_WEDGE_ASIS` otherwise. There is deliberately no automatic
-value: there is nothing to detect it from.
-
-*Pinned by* `ParseTest.WedgeOrderOptionSwapsOnlyTheWedge` and
+Pinned by `ParseTest.WedgeOrderOptionSwapsOnlyTheWedge` and
 `test_wedge_order_option_actually_changes_the_wedge`.
 
-### PY5 and PY13 are read here and not yet in released PyVista
+### PY5 and PY13 are not in a released PyVista version
 
-CalculiX's experimental pyramids (C3D5 and C3D13) are supported by this
-library. PyVista gains them in
-[pyvista#8936](https://github.com/pyvista/pyvista/pull/8936), which is not in a
-release yet. Until it is, a file using them reads here and produces an
-"unknown element type" warning there.
+This package supports the experimental C3D5 and C3D13 pyramid elements.
+PyVista support is proposed in
+[pyvista#8936](https://github.com/pyvista/pyvista/pull/8936), which remains
+open. Until it is merged and released, installed PyVista versions warn that
+these element types are unknown.
 
-The conformance suite's vendored oracle is taken from that pull request, so
-the parity sweep grades these elements. The warning-parity sweep, which grades
-against the *installed* PyVista, skips the pyramid fixtures by name and says
-why.
+The conformance reference includes the implementation from that pull request.
+The diagnostic comparison against installed PyVista skips the pyramid fixtures.
 
-*Pinned by* `tests/test_reader.py::test_pyramid_nodes_land_unpermuted`, and by
-the skip list in `tests/conformance/test_diagnostics_parity.py`.
+Pinned by `tests/test_reader.py::test_pyramid_nodes_land_unpermuted` and the
+skip list in `tests/conformance/test_diagnostics_parity.py`.
 
-## Where the writer differs from CalculiX
+## Writer difference from CalculiX
 
-One entry, and it is against a different reference: everything above compares
-two readers, and this compares what this library *writes* against what
-CalculiX writes.
+### Binary-to-ASCII conversion formats the stored double
 
-### Converting binary to ASCII renders the double, not a float
+CalculiX casts each value to `float32` before writing ASCII. This writer formats
+the `float64` value it holds. Both use six significant digits, but they can
+differ at a rounding tie. For example:
 
-`frd.c` casts every value to `float` before printing it, so CalculiX's ASCII is
-the six-digit rounding of a `float32`. This writer renders the `double` it
-holds, which is the nearest six-digit decimal to the number actually stored.
+```text
+float64 value: 6.464285098e-04
+this writer:   6.46429E-04
+CalculiX:      6.46428E-04
+```
 
-The two agree except at a rounding tie: `6.464285098e-04` is `6.46429E-04` from
-the double and `6.46428E-04` from the float. Across the twelve binary fixtures
-that have an ASCII twin from the same solver run, **25 of 825 record lines
-differ, all of them ties**.
+Across the 12 paired binary and ASCII fixtures, 25 of 825 record lines differ.
+Each difference is one final digit at a rounding tie. This affects conversion
+from binary to ASCII. Reading and writing a file in its original encoding is
+byte-identical across 1,111 external FRD files.
 
-Not closed, though a single cast would close it. The rendering here is correct
-for a value that was never a `float32` -- a `float64` binary block, or a mesh
-handed to the builder from NumPy -- and matching CalculiX's tie-breaking would
-mean discarding precision on every value to agree about the 25 that differ,
-which is 3% of the record lines and 0.8% of the 3,044 values on them.
-
-This affects **conversion only**. A file read and written back in its own
-format has no cast on either path and is byte-identical, over 1,111 external
-files.
-
-*Pinned by* `test_converted_ascii_is_the_double_rounded_not_the_float`, which
-states both renderings exactly, `test_the_float_cast_explains_a_few_percent_and_no_more`, which bounds the
-population from both sides, and the
+Pinned by `test_converted_ascii_is_the_double_rounded_not_the_float`,
+`test_the_float_cast_explains_a_few_percent_and_no_more`, and the
 `writer-narrows-through-float32` mutant.
 
-## Not differences
+## Equivalent behavior with different timing
 
-Two things look like differences and are not:
-
-- **Time steps are materialised on demand.** PyVista parses every value of
-  every step at open. This library indexes the blocks at open and parses a
-  step's values when that step is first asked for. The arrays are identical;
-  only when the work happens differs.
-- **Warnings are raised at construction.** Both readers warn when the reader
-  is constructed, not when `read()` is called, because construction is where
-  the file is parsed.
+- Result arrays are parsed on demand. PyVista parses all results when the file
+  is opened. This package indexes blocks at open and parses a step when it is
+  first requested.
+- Invalid-element warnings are emitted when `FRDReader` is constructed, not
+  when `read()` is called. Both readers parse the mesh during construction.

@@ -3,9 +3,8 @@
 Element types
 =============
 
-CalculiX names its elements by a numeric code in the second field of each
-element record. This reader maps fourteen of them onto VTK cell types, which is
-every type CalculiX's own ``frd.c`` writes plus the two experimental pyramids.
+FRD element records use a numeric type code. This reader maps 14 codes to VTK
+cell types, including the experimental pyramid types.
 
 Each mesh below was solved by CalculiX from a one-element deck in
 ``tests/fixtures/generated/src``.
@@ -18,18 +17,16 @@ import pyvista as pv
 import pyvista_frd
 
 # %%
-# The table the reader works from.
+# Print the supported FRD codes.
 
 for code, name in sorted(pyvista_frd.ELEMENT_TYPE_NAMES.items()):
     print(f'  {code:3d}  {name}')
 
 # %%
-# One solved fixture per type, drawn together. The FRD files here are genuine
-# CalculiX output; the decks that produced them are this repository's.
+# Plot one CalculiX-generated fixture for each available type.
 #
-# Twelve of the fourteen appear. CalculiX 2.22 answers ``C3D5 is an unknown
-# element type`` and stops, so there is no solver-written pyramid to draw --
-# the PY5 and PY13 fixtures this package is tested against are hand-written.
+# CalculiX 2.22 rejects C3D5 and C3D13, so PY5 and PY13 have no solver-written
+# fixture. Their test fixtures are handwritten.
 
 root = Path('../../tests/fixtures/generated').resolve()
 files = sorted(root.glob('*.frd'))
@@ -46,16 +43,13 @@ for index, path in enumerate(files):
 pl.show()
 
 # %%
-# An element the reader does not recognise, or one whose record holds the wrong
-# number of nodes, is reported rather than silently dropped.
-# :class:`pyvista.InvalidMeshWarning` is raised at construction naming the line
-# it was found on, and the rest of the file still reads.
+# An unsupported element or invalid node count produces
+# :class:`pyvista.InvalidMeshWarning` with the source line number. Other valid
+# elements remain available.
 #
-# The wedge is worth a note of its own. VTK changed the node order of a linear
-# wedge at 9.7, so the correct connectivity depends on which VTK the cells are
-# destined for. The Python layer reads that from the installed VTK; a C++
-# caller has to say which convention it wants, because there is nothing to
-# detect it from.
+# VTK changed linear-wedge node ordering in version 9.7. The Python layer
+# selects the order from the installed VTK version. C and C++ callers select it
+# explicitly.
 
 print('VTK', pv.vtk_version_info)
 mesh = pyvista_frd.read(root / 'wedge6.frd')
