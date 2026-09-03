@@ -1,10 +1,8 @@
-"""Read CalculiX FRD result files into PyVista, backed by a C++ core.
+"""Read and write CalculiX FRD files with PyVista.
 
-The parser is C++ behind a plain C ABI (``cpp/include/pvfrd/pvfrd.h``), so the
-same implementation serves Python here, a C++ program linking the library, and
-anything else with a foreign-function interface. This package is the PyVista
-half of it: it converts what the core produced into an
-:class:`pyvista.UnstructuredGrid`.
+The Python API converts arrays from the C++ parser into
+:class:`pyvista.UnstructuredGrid` objects. The same parser is available through
+the C API in ``cpp/include/pvfrd/pvfrd.h``.
 
 Examples
 --------

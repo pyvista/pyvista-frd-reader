@@ -8,19 +8,14 @@ Install
 
    pip install pyvista-frd-reader
 
-Wheels are published for Linux (x86_64 and aarch64), macOS (Intel and Apple
-silicon) and Windows. They carry a compiled library and no CPython extension
-module, so one wheel per platform serves every supported interpreter.
+Wheels are available for Linux (x86_64 and aarch64), macOS (Intel and Apple
+silicon), and Windows.
 
-The Linux wheels are ``manylinux_2_28`` -- glibc 2.28 or newer, so RHEL 8,
-Debian 10, Ubuntu 20.04 and later. That floor comes from NumPy and VTK rather
-than from this package: the core needs only C++17, but a wheel tagged for an
-older glibc than its dependencies can be installed alongside would be promising
-something that does not work.
+Linux wheels use ``manylinux_2_28`` and require glibc 2.28 or newer. This
+includes RHEL 8, Debian 10, Ubuntu 20.04, and later releases.
 
-Installing from source needs CMake and a C++17 compiler. There is no
-pure-Python fallback, deliberately: a reader that silently falls back is
-indistinguishable from one that works until someone measures it.
+A source build requires CMake and a C++17 compiler. The package has no
+pure-Python fallback.
 
 Read a file
 -----------
@@ -32,10 +27,10 @@ Read a file
    mesh = pyvista_frd.read("result.frd")
    mesh.plot(scalars="STRESS_Mises")
 
-:func:`pyvista_frd.read` returns a :class:`pyvista.UnstructuredGrid`. Every
-nodal result in the file is attached as point data under the name CalculiX gave
-it, and for any six-component ``STRESS`` or ``STRAIN`` array five derived
-arrays are appended -- ``_Mises``, ``_sgMises``, and ``_PS1`` through ``_PS3``.
+:func:`pyvista_frd.read` returns a :class:`pyvista.UnstructuredGrid`. Nodal
+results are stored as point data under their CalculiX names. Six-component
+``STRESS`` and ``STRAIN`` arrays also produce ``_Mises``, ``_sgMises``, and
+``_PS1`` through ``_PS3`` arrays.
 
 For a file with more than one step, use the reader object:
 
@@ -50,8 +45,8 @@ Write a file
 
 .. code-block:: python
 
-   pyvista_frd.write("out.frd", mesh)               # ASCII
-   pyvista_frd.write("out.frd", mesh, binary=True)  # about a third of the size
+   pyvista_frd.write("out_ascii.frd", mesh)
+   pyvista_frd.write("out_binary.frd", mesh, binary=True)
 
    # Or convert without building a mesh at all.
    pyvista_frd.convert("binary.frd", "ascii.frd", binary=False)
@@ -59,28 +54,23 @@ Write a file
 What it reads
 -------------
 
-Element types HE8, PE6, PE15, TE4, HE20, TE10, TR3, TR6, QU4, QU8, BE2, BE3,
-PY5 and PY13 -- the last two being CalculiX's experimental pyramids, C3D5 and
-C3D13. Both the short and long element-record formats are handled, including
-the case CalculiX produces past 9,999 nodes where the node ids in a record run
-together with no separator at all.
+Supported element types are HE8, PE6, PE15, TE4, HE20, TE10, TR3, TR6, QU4,
+QU8, BE2, BE3, PY5, and PY13. PY5 and PY13 are the experimental CalculiX
+pyramid types C3D5 and C3D13. The parser handles short and long fixed-width
+element records, including records with adjacent node IDs.
 
-**All four encodings**, which is a block header's last field: the two ASCII
-widths and the two binary ones. Binary FRD is what CalculiX writes from
-``*REFINE MESH`` and from a ``DOUBLE`` output card, and PyVista's own reader
-cannot open it -- it parses FRD as text, so a binary file yields an empty mesh
-or an error. :doc:`binary` covers how that decode is checked.
+The package reads both ASCII encodings and the ``float32`` and ``float64``
+binary encodings. CalculiX writes binary FRD for ``*REFINE MESH`` and ``DOUBLE``
+output cards. PyVista's built-in reader reads ASCII FRD only. See :doc:`binary`
+for the record layout and test coverage.
 
-Elements with the wrong number of nodes, or a type nothing recognises, raise
-:class:`pyvista.InvalidMeshWarning` naming the line they were found on.
+Elements with an invalid node count or an unsupported type produce
+:class:`pyvista.InvalidMeshWarning` with the source line number.
 
 Relation to PyVista's own reader
 --------------------------------
 
-PyVista reads ``.frd`` already, through ``pyvista.FRDReader``. This package
-reimplements that reader rather than replacing it, and is graded against it:
-:doc:`parity` records a comparison over 1,766 files nobody here wrote, and
-:doc:`divergences` lists every place the two deliberately differ, with the test
-that pins each one.
-
-Both are Rafal's design. :doc:`history` says whose work this is.
+PyVista already reads ASCII FRD through ``pyvista.FRDReader``. This package is
+a separate implementation and does not replace PyVista's reader. :doc:`parity`
+reports the external comparison; :doc:`divergences` lists known differences.
+:doc:`history` records the implementation history and credit.

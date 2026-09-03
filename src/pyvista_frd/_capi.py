@@ -1,16 +1,8 @@
-"""``ctypes`` binding to the ``pvfrd`` C ABI.
+"""Load the ``pvfrd`` C API with :mod:`ctypes`.
 
-There is no compiled extension module here and no binding framework. The core
-is a plain shared library exposing a C ABI, and this module loads it with
-:mod:`ctypes`. That is what lets the same library be consumed as a C++
-submodule, cross-compiled to WebAssembly, and shipped in a wheel without three
-binding layers going out of step -- and it is why a wheel of this package
-carries no CPython ABI tag.
-
-Unlike some sibling projects, there is no pure-Python fallback: the C++ core
-*is* the implementation. A missing or unloadable library raises here rather
-than degrading to something slower, because a degraded reader that still
-returns a mesh is indistinguishable from a working one until someone measures.
+The package contains a shared library rather than a CPython extension. The
+same C API can be linked from C++, cross-compiled to WebAssembly, or loaded by
+another foreign-function interface. There is no pure-Python parser.
 """
 
 from __future__ import annotations
@@ -95,15 +87,9 @@ DERIVED = 1
 
 
 class FRDError(RuntimeError):
-    """The native library reported a failure.
+    """Base class for errors reported by the native library.
 
-    The base of every error this package raises from the native core, so
-    ``except FRDError`` catches all of them. The subclasses below also inherit
-    the built-in exception a Python caller would reach for -- an index out of
-    range is an ``IndexError``, running out of memory is a ``MemoryError`` --
-    because a C status code is the wrong shape for Python's ``except`` and
-    making callers match on ``err.status`` is asking them to write a switch
-    where the language already has one.
+    Subclasses also inherit the corresponding built-in Python exception.
     """
 
     def __init__(self, status: int, detail: str = '') -> None:
@@ -117,12 +103,7 @@ class FRDFormatError(FRDError, ValueError):
 
 
 class FRDRaggedArrayError(FRDFormatError):
-    """One result block gave two nodes different component counts.
-
-    A subclass of the format error rather than a sibling: it is a statement
-    about the file, and a caller who only wants to know "is this file
-    readable" should not have to name it separately.
-    """
+    """One result block contains inconsistent component counts."""
 
 
 class FRDRangeError(FRDError, IndexError):
@@ -138,12 +119,7 @@ class FRDMemoryError(FRDError, MemoryError):
 
 
 class FRDInternalError(FRDError):
-    """A fault inside the native library, not a property of the file.
-
-    Distinct from :class:`FRDFormatError` on purpose. Reporting a library bug
-    as a bad file sends the reporter to inspect a file that is fine. If you
-    see this, it is worth an issue.
-    """
+    """The native library failed independently of the input file."""
 
 
 _STATUS_EXCEPTIONS: dict[int, type[FRDError]] = {
@@ -533,9 +509,8 @@ def _raise_for_open_failure(status: int, path: str | os.PathLike[str]) -> None:
 class NativeFile:
     """An open FRD document.
 
-    Thin: it owns the handle and converts native buffers to NumPy. Everything
-    about PyVista lives a layer up, so this class is usable without PyVista
-    installed and is what the conformance suite drives directly.
+    Owns the native handle and copies returned buffers into NumPy arrays. This
+    class does not construct PyVista objects.
     """
 
     def __init__(self, path: str | os.PathLike[str], *, wedge_order: int = WEDGE_ASIS) -> None:
@@ -664,10 +639,7 @@ class NativeFile:
     def array_infos(self, step: int) -> list[tuple[str, int, int]]:
         """Return ``(name, n_components, kind)`` for every array in a step.
 
-        One call across the boundary rather than one per array. A step holds
-        an array per result block plus five more for every tensor, so the
-        per-call cost of a foreign-function layer was being paid a dozen times
-        to move a few hundred bytes.
+        Metadata for a step is fetched in one C API call.
         """
         handle = self._require_open()
         count = self.n_arrays(step)
@@ -693,10 +665,8 @@ class NativeFile:
     def steps_parsed(self) -> int:
         """Number of times a step's values have been parsed.
 
-        Zero until a step is asked for, and thereafter equal to the number of
-        distinct steps requested. Exposed so that both halves of the lazy step
-        path -- parsed on demand, and parsed at most once -- are things a test
-        can assert rather than things the documentation asserts.
+        The count is zero before any result is requested and increments once
+        for each distinct parsed step.
         """
         return int(_lib.pvfrd_steps_parsed(self._require_open()))
 

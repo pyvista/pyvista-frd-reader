@@ -3,11 +3,9 @@
 Write a mesh as FRD
 ===================
 
-:func:`pyvista_frd.write` sends a :class:`pyvista.UnstructuredGrid` back out as
-an FRD file, in any of the format's four encodings. CalculiX reads what it
-produces: the round trip below is checked in this repository against CalculiX's
-own bytes over 1,111 external files, and against the solver itself reading a
-written file back in as a submodel boundary condition.
+:func:`pyvista_frd.write` writes a :class:`pyvista.UnstructuredGrid` as long
+ASCII, binary ``float32``, or binary ``float64`` FRD. This example builds a
+mesh, writes ASCII FRD, and reads the result.
 """
 
 from pathlib import Path
@@ -19,8 +17,7 @@ import pyvista as pv
 import pyvista_frd
 
 # %%
-# Any unstructured grid will do. This one is built from scratch, with a field
-# that has nothing to do with CalculiX.
+# Build an unstructured grid with vector and scalar point data.
 
 mesh = pv.ParametricTorus(ringradius=6, crosssectionradius=2)
 mesh = mesh.cast_to_unstructured_grid().triangulate()
@@ -36,7 +33,7 @@ pyvista_frd.write(out, mesh)
 print(f'{out.name}: {out.stat().st_size / 1024:.0f} KB')
 
 # %%
-# Read it back. The mesh and every array return.
+# Read the file and check the point coordinates.
 
 again = pyvista_frd.read(out)
 print(again)
@@ -46,7 +43,7 @@ np.testing.assert_allclose(again.points, mesh.points, rtol=1e-5)
 print('points survive the round trip')
 
 # %%
-# Side by side.
+# Compare the original and loaded arrays.
 
 pl = pv.Plotter(shape=(1, 2), window_size=(1000, 460))
 pl.subplot(0, 0)
@@ -61,24 +58,17 @@ pl.camera.zoom(1.35)
 pl.show()
 
 # %%
-# Node numbering is preserved when the mesh carries it. A grid that came from
-# :func:`pyvista_frd.read` has an ``original_node_ids`` array holding the
-# numbers the file used, and writing it back uses those numbers rather than
-# renumbering from one -- which matters when the file is going to a solver that
-# refers to nodes by name.
+# A grid loaded by :func:`pyvista_frd.read` includes ``original_node_ids``.
+# Writing that grid preserves its node numbering.
 
-# Sphinx-Gallery runs each example from its own directory; the decks and
-# their solved output live one level up, in ``doc/_data``.
+# Sphinx-Gallery runs this file from ``doc/examples``.
 DATA = Path('../_data').resolve()
 loaded = pyvista_frd.read(DATA / 'cantilever.frd')
 print('carries original ids:', 'original_node_ids' in loaded.point_data)
 print('first five:', loaded.point_data['original_node_ids'][:5])
 
 # %%
-# Not every mesh can become an FRD file. CalculiX has no equivalent for a
-# polyhedron or a higher-order cell outside its own element table, and the
-# writer refuses rather than dropping the cell and producing a file that is
-# smaller than the mesh it claims to describe.
+# Unsupported VTK cell types raise an error. The writer does not drop them.
 
 bad = pv.PolyData(np.array([[0.0, 0, 0], [1, 0, 0], [0, 1, 0], [0, 0, 1], [1, 1, 1]])).delaunay_3d()
 bad = bad.cast_to_unstructured_grid()

@@ -1,13 +1,8 @@
-"""PyVista-facing reader for CalculiX FRD files.
+"""Convert CalculiX FRD data from the native parser into PyVista meshes.
 
-This layer does one job: turn the arrays the native core produced into a
-:class:`pyvista.UnstructuredGrid`. All parsing, all element handling, and all
-derived quantities happen in C++ -- which is what lets a caller in another
-language get the same numbers without reimplementing any of it.
-
-The public surface deliberately matches PyVista's own ``FRDReader``, including
-the ``TimeReader`` methods and the wording of its warnings, so that PyVista can
-one day hand ``.frd`` to this package without any caller noticing.
+The public reader follows PyVista's ``FRDReader`` and ``TimeReader`` interfaces.
+Parsing, element conversion, and derived tensor quantities are implemented in
+the C++ library.
 """
 
 from __future__ import annotations
@@ -105,12 +100,11 @@ def _describe(diagnostic: Diagnostic) -> str:
 class FRDReader:
     """Reader for CalculiX FRD result files (``.frd``).
 
-    All four of the format's encodings are read: both ASCII widths and both
-    binary ones. Supported element types are HE8, PE6, PE15, TE4, HE20, TE10,
+    Reads both ASCII encodings and both binary encodings. Supported element
+    types are HE8, PE6, PE15, TE4, HE20, TE10,
     TR3, TR6, QU4, QU8, BE2, BE3, PY5 and PY13.
 
-    For datasets containing 6-component tensors (e.g. STRESS or STRAIN), the
-    reader pre-computes and appends the following derived point arrays:
+    For each six-component STRESS or STRAIN tensor, the reader adds:
 
     - ``<NAME>_Mises``: equivalent von Mises magnitude.
     - ``<NAME>_sgMises``: signed von Mises magnitude.
@@ -124,9 +118,8 @@ class FRDReader:
     Warns
     -----
     pyvista.InvalidMeshWarning
-        Raised at construction, not at read, for elements carrying the wrong
-        number of nodes or an unknown type. Construction is where the file is
-        parsed, so it is also where anything wrong with it is known.
+        Emitted during construction for an invalid node count or unsupported
+        element type.
 
     Examples
     --------
@@ -288,7 +281,7 @@ def read(path: str | os.PathLike[str], *, time_point: int | None = None) -> Unst
     path : str | os.PathLike
         File to read.
     time_point : int, optional
-        Which time step to build. Defaults to the first, matching PyVista.
+        Time step to read. Defaults to the first step.
 
     Returns
     -------
@@ -330,27 +323,21 @@ def write(  # noqa: PLR0913 - each argument is one documented knob of the format
     path : str | os.PathLike
         File to write.
     mesh : pyvista.UnstructuredGrid
-        The mesh. Every cell type must have a CalculiX element code; one that
-        does not is an error rather than a silently dropped cell.
+        Mesh to write. Every cell type must have a CalculiX element code.
     binary : bool, default: False
-        Write the binary encoding rather than the ASCII one. Binary is about a
-        third of the size and holds the values exactly; ASCII holds six
-        significant digits and can be read by anything.
+        Write binary records. ASCII records are used by default.
     double : bool, default: True
-        With ``binary``, whether values are 64-bit. 32-bit halves the size of
-        the result blocks and is what a float32 array can carry anyway.
+        Use 64-bit binary values. Set to ``False`` for 32-bit binary values.
     time, step : float and int
         The time value and step number recorded in the result block header.
 
     Notes
     -----
-    Point data is written; cell data is not, because FRD's result blocks are
-    nodal. An array that is neither scalar, 3-vector nor 6-tensor is written
+    Point data is written; cell data is not. An array that is neither a scalar,
+    three-component vector, nor six-component tensor is written
     with a scalar kind code and its own component names.
 
-    The file identifies this library as its writer. It is not labelled as
-    CalculiX output, which several checks in this repository -- and possibly
-    in yours -- use to tell solver output from anything else.
+    The output identifies this package as its writer rather than CalculiX.
 
     Examples
     --------
@@ -417,21 +404,14 @@ def convert(
 ) -> None:
     """Rewrite an FRD file, optionally changing its encoding.
 
-    With no ``binary`` argument every block keeps the encoding it had, which
-    reproduces the input byte for byte -- the property the writer is graded on
-    against files CalculiX wrote.
-
-    The conversion is the useful direction: a binary FRD, which an ASCII-only
-    reader cannot open at all, becomes one any of them can read. Going the
-    other way costs precision, because ASCII holds six significant digits.
+    If ``binary`` is omitted, each block keeps its input encoding. Set it to
+    ``False`` to make binary records available to ASCII-only readers. ASCII
+    output stores six significant digits.
 
     Raises
     ------
     FRDFormatError
-        If the document cannot be restated in the requested encoding -- a
-        block header that states no format code cannot be re-stamped, and
-        converting its records anyway would leave the header describing an
-        encoding they no longer use.
+        If a block has no format code and cannot be converted safely.
 
     Examples
     --------

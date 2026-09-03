@@ -33,9 +33,9 @@ Diagnostics
 Errors
 ------
 
-Every exception this package raises is both an :class:`FRDError` and the
-built-in a caller would have expected, so ``except ValueError`` and
-``except FRDError`` both work.
+Native-library exceptions inherit from :class:`FRDError` and the corresponding
+built-in exception. For example, :class:`FRDFormatError` is also a
+:class:`ValueError`.
 
 .. autoexception:: FRDError
 .. autoexception:: FRDFormatError
@@ -49,9 +49,7 @@ built-in a caller would have expected, so ``except ValueError`` and
 Constants
 ---------
 
-An attribute docstring is only visible to autodoc in the module that makes the
-assignment, so these are documented from there. Both are importable from the
-top-level package.
+These constants are importable from the top-level package.
 
 .. autodata:: pyvista_frd.reader.ELEMENT_TYPE_NAMES
    :no-value:
@@ -63,10 +61,8 @@ top-level package.
 Below the Python layer
 ----------------------
 
-:class:`NativeFile` is the thin ctypes binding over the C ABI. It is public so
-that a caller who wants the arrays without a :class:`pyvista.UnstructuredGrid`
-around them -- or who is measuring what the Python layer costs -- does not have
-to reach into a private module.
+:class:`NativeFile` provides NumPy arrays directly from the C API without
+building a :class:`pyvista.UnstructuredGrid`.
 
 .. autoclass:: NativeFile
    :members:

@@ -185,12 +185,15 @@ jobs:
             "$(find cpp/build-static -name 'libpvfrd.a' | head -n1)"
 
       - name: The example check must be able to fail
-        # Same reason the release gate has one: a checker that has forgotten
-        # how to say no reports success indistinguishably from a correct
-        # README.
+        # Mutate a call that appears in the current example. If the example
+        # changes, fail here instead of silently testing an unmodified file.
         run: |
           cp README.rst README.rst.bak
-          sed -i 's/pvfrd_array_data(/pvfrd_no_such_call(/' README.rst
+          if ! grep -q 'pvfrd_points(' README.rst; then
+            echo "::error::the control could not find the C call it edits"
+            exit 1
+          fi
+          sed -i 's/pvfrd_points(/pvfrd_no_such_call(/' README.rst
           if python3 tools/check_readme_c.py cpp/include \
                "$(find cpp/build-static -name 'libpvfrd.a' | head -n1)" \
                > /dev/null 2>&1; then
@@ -445,12 +448,8 @@ jobs:
           twine check --strict dist/*.tar.gz
 
       - name: The README check must be able to fail
-        # A rendering gate that cannot reject anything would have passed on the
-        # broken table too. readme_renderer is the library twine check uses, so
-        # driving it directly tests the same renderer without rebuilding an
-        # sdist: the real README must render, and the README with its second
-        # column narrowed by one -- precisely the defect that stopped v0.1.0 --
-        # must not.
+        # Append a self-contained malformed table. This proves the renderer can
+        # reject invalid RST without depending on a particular README table.
         run: |
           python - <<'PYEOF'
           import io
@@ -466,13 +465,13 @@ jobs:
               return render(text, stream=io.StringIO()) is not None
 
           good = open('README.rst').read()
-          bad = good.replace(
-              '=========================  ===========  ==========  =====',
-              '=========================  ==========  ==========  =====',
+          bad = good + (
+              '\n\nMalformed table control\n'
+              '-----------------------\n\n'
+              '=====  =====\n'
+              'one    two\n'
+              '=====  ====\n'
           )
-          if bad == good:
-              sys.exit('::error::the control could not find the table it edits; '
-                       'the README changed and this step needs updating')
 
           if not renders(good):
               sys.exit('::error::the real README does not render')
