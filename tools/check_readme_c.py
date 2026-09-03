@@ -2,9 +2,9 @@
 """Compile and link the C example in the README against the real library.
 
 A README that shows a C API is making a claim about that API's spelling, and
-prose does not go stale loudly. Renaming ``pvfrd_array_data`` would redden the
-gtest tier and leave the README quietly wrong -- which is worse than no
-example, because someone would copy it.
+prose does not go stale loudly. Renaming ``pvfrd_points`` would redden the
+gtest tier and leave the README quietly wrong, where someone could still copy
+it.
 
 The block is a fragment, so it is wrapped in a ``main`` before compiling.
 Compiled *and linked*, not merely parsed: a declaration the header carries but
