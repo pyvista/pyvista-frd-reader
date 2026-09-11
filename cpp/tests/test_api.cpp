@@ -93,6 +93,7 @@ TEST(ApiTest, NullArgumentsAreRejectedNotDereferenced) {
   EXPECT_EQ(pvfrd_node_ids(nullptr), nullptr);
   EXPECT_EQ(pvfrd_n_cells(nullptr), 0u);
   EXPECT_EQ(pvfrd_cell_types(nullptr), nullptr);
+  EXPECT_EQ(pvfrd_cell_ids(nullptr), nullptr);
   EXPECT_EQ(pvfrd_cell_offsets(nullptr), nullptr);
   EXPECT_EQ(pvfrd_cell_connectivity(nullptr), nullptr);
   EXPECT_EQ(pvfrd_n_diagnostics(nullptr), 0u);
@@ -422,4 +423,21 @@ TEST(ApiTest, StructFieldsAreWhereTheHeaderSaysTheyAre) {
   EXPECT_LT(offsetof(pvfrd_diagnostic, element_type), offsetof(pvfrd_diagnostic, line));
   EXPECT_LT(offsetof(pvfrd_diagnostic, line), offsetof(pvfrd_diagnostic, n_expected));
   EXPECT_LT(offsetof(pvfrd_diagnostic, n_expected), offsetof(pvfrd_diagnostic, n_actual));
+}
+
+TEST(ApiTest, OriginalElementIdsFollowOnlyRetainedCells) {
+  const std::string bytes =
+      "2C\n -1    1 0.0 0.0 0.0\n -1    2 1.0 0.0 0.0\n -3\n3C\n"
+      " -1   90   11\n -2    1    2\n"
+      " -1   40  999\n -2    1    2\n"
+      " -1   50   11\n -2    1   99\n"
+      " -1   60   11\n -2    1\n"
+      " -1   20   11\n -2    2    1\n -3\n";
+  pvfrd_file *file = nullptr;
+  ASSERT_EQ(pvfrd_open_memory(bytes.data(), bytes.size(), nullptr, &file), PVFRD_OK);
+  ASSERT_EQ(pvfrd_n_cells(file), 2u);
+  ASSERT_NE(pvfrd_cell_ids(file), nullptr);
+  EXPECT_EQ(pvfrd_cell_ids(file)[0], 90);
+  EXPECT_EQ(pvfrd_cell_ids(file)[1], 20);
+  pvfrd_close(file);
 }

@@ -49,8 +49,9 @@ extern "C" {
  * missing a symbol reports the version rather than failing at bind time.
  *
  *   1  reading
- *   2  writing */
-#define PVFRD_ABI_VERSION 2u
+ *   2  writing
+ *   3  original element ids */
+#define PVFRD_ABI_VERSION 3u
 
 typedef enum pvfrd_status {
   PVFRD_OK = 0,
@@ -208,6 +209,10 @@ PVFRD_API const double *pvfrd_points(const pvfrd_file *file);
 PVFRD_API const int64_t *pvfrd_node_ids(const pvfrd_file *file);
 
 PVFRD_API uint64_t pvfrd_n_cells(const pvfrd_file *file);
+
+/* Original element ids, in returned cell order (not sorted). Skipped cells
+ * have no entry. An unparseable ASCII element id is represented by 0. */
+PVFRD_API const int64_t *pvfrd_cell_ids(const pvfrd_file *file);
 
 /* One VTK cell type per cell. */
 PVFRD_API const uint8_t *pvfrd_cell_types(const pvfrd_file *file);

@@ -14,6 +14,14 @@ Reading
    :members:
    :inherited-members:
 
+Input-deck sets
+---------------
+
+.. autofunction:: read_sets
+
+.. autoclass:: INPSets
+   :members:
+
 Writing
 -------
 

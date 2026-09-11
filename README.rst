@@ -39,6 +39,22 @@ Use ``FRDReader`` when a file contains more than one result step:
 The reader implements PyVista's time-reader interface. Result blocks are
 indexed when the file is opened and parsed when their step is first read.
 
+Read node and element sets
+--------------------------
+
+Supply a companion input deck to attach boolean set masks to the result:
+
+.. code:: python
+
+   mesh = pyvista_frd.read("model.frd", inp_path="model.inp")
+   body = mesh.extract_cells(mesh.cell_data["ELSET:BODY"])
+   fixed = mesh.extract_points(mesh.point_data["NSET:FIXED"])
+
+``pyvista_frd.read_sets("model.inp")`` returns the original set IDs without
+an FRD file. Includes, generated ranges, and references to earlier sets are
+supported. See `Node and element sets <https://frd-reader.pyvista.org/sets.html>`_
+for naming, missing-ID behavior, and limitations. Surfaces are not imported.
+
 Write and convert files
 -----------------------
 

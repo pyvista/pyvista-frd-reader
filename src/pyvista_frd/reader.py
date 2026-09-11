@@ -23,6 +23,8 @@ from ._capi import WEDGE_SWAP
 from ._capi import Diagnostic
 from ._capi import DiagnosticKind
 from ._capi import NativeFile
+from .sets import INPSets
+from .sets import read_sets
 
 if TYPE_CHECKING:
     from pyvista import UnstructuredGrid
@@ -114,6 +116,16 @@ class FRDReader:
     ----------
     path : str | os.PathLike
         File to read.
+    inp_path : str | os.PathLike, optional
+        Companion input deck. When supplied, add boolean ``NSET:<NAME>``
+        point arrays and ``ELSET:<NAME>`` cell arrays. No deck is loaded
+        automatically. IDs absent from the FRD mesh are omitted from masks.
+
+    Attributes
+    ----------
+    sets : INPSets
+        Original node and element memberships from the supplied input deck.
+        Empty when no input deck was supplied.
 
     Warns
     -----
@@ -131,7 +143,10 @@ class FRDReader:
 
     """
 
-    def __init__(self, path: str | os.PathLike[str]) -> None:
+    def __init__(
+        self, path: str | os.PathLike[str], *, inp_path: str | os.PathLike[str] | None = None
+    ) -> None:
+        self.sets = INPSets() if inp_path is None else read_sets(inp_path)
         self.path = os.fspath(path)
         self._file = NativeFile(self.path, wedge_order=_default_wedge_order())
         self._time_steps = self._file.step_times
@@ -241,6 +256,17 @@ class FRDReader:
             for index, (name, _n_components, _kind) in enumerate(self._file.array_infos(step)):
                 grid.point_data[name] = self._file.array(step, index)
 
+        if self.sets.node_sets or self.sets.element_sets:
+            grid.cell_data['original_element_ids'] = self._file.cell_ids.copy()
+            for name, ids in self.sets.node_sets.items():
+                key = f'NSET:{name}'
+                if key in grid.point_data:
+                    msg = f'Set array {key!r} conflicts with an FRD result array'
+                    raise ValueError(msg)
+                grid.point_data[key] = np.isin(self._file.node_ids, ids)
+            for name, ids in self.sets.element_sets.items():
+                grid.cell_data[f'ELSET:{name}'] = np.isin(self._file.cell_ids, ids)
+
         return grid
 
 
@@ -273,7 +299,12 @@ def _cell_array(offsets: np.ndarray, connectivity: np.ndarray) -> pv.CellArray:
     return _Cells(offsets.astype(dtype), connectivity.astype(dtype))
 
 
-def read(path: str | os.PathLike[str], *, time_point: int | None = None) -> UnstructuredGrid:
+def read(
+    path: str | os.PathLike[str],
+    *,
+    time_point: int | None = None,
+    inp_path: str | os.PathLike[str] | None = None,
+) -> UnstructuredGrid:
     """Read an FRD file into a :class:`pyvista.UnstructuredGrid`.
 
     Parameters
@@ -282,6 +313,8 @@ def read(path: str | os.PathLike[str], *, time_point: int | None = None) -> Unst
         File to read.
     time_point : int, optional
         Time step to read. Defaults to the first step.
+    inp_path : str | os.PathLike, optional
+        Companion input deck; see :class:`FRDReader` for set array naming.
 
     Returns
     -------
@@ -294,7 +327,7 @@ def read(path: str | os.PathLike[str], *, time_point: int | None = None) -> Unst
     >>> mesh = pyvista_frd.read('mesh.frd')  # doctest: +SKIP
 
     """
-    reader = FRDReader(path)
+    reader = FRDReader(path, inp_path=inp_path)
     if time_point is not None:
         reader.set_active_time_point(time_point)
     return reader.read()

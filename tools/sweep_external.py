@@ -340,7 +340,11 @@ def main() -> int:
     parser.add_argument('--quiet', action='store_true', help='only print non-agreeing files')
     args = parser.parse_args()
 
-    paths = sorted(p for p in args.directory.rglob('*') if p.suffix.lower() == '.frd')
+    paths = sorted(
+        p
+        for p in args.directory.rglob('*')
+        if p.suffix.lower() == '.frd' or p.name.lower().endswith('.frd.ref')
+    )
     if args.limit:
         paths = paths[: args.limit]
     if not paths:

@@ -83,6 +83,7 @@ encodings, writes long ASCII and binary FRD, and converts record encodings.
 
    api/index
    writing
+   sets
    binary
 
 .. toctree::

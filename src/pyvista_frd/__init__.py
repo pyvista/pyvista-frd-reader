@@ -31,6 +31,8 @@ from .reader import FRDReader as FRDReader
 from .reader import convert as convert
 from .reader import read as read
 from .reader import write as write
+from .sets import INPSets as INPSets
+from .sets import read_sets as read_sets
 
 try:
     from ._version import __version__
@@ -50,11 +52,13 @@ __all__ = [
     'FRDRaggedArrayError',
     'FRDRangeError',
     'FRDReader',
+    'INPSets',
     'NativeFile',
     'NativeUnavailableError',
     '__version__',
     'convert',
     'library_path',
     'read',
+    'read_sets',
     'write',
 ]
