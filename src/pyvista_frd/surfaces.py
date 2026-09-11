@@ -37,9 +37,20 @@ def _topology(cell_type: int, n_points: int) -> tuple[tuple, tuple]:
         [cell_type],
         np.zeros((n_points, 3)),
     ).get_cell(0)
-    faces = tuple((int(face.type), tuple(face.point_ids)) for face in template.faces)
+    faces = []
+    for face in template.faces:
+        indices = tuple(face.point_ids)
+        if cell_type == pv.CellType.QUADRATIC_WEDGE:
+            # Older VTK releases return inward-wound quadratic wedge faces.
+            # Normalize on the reference cell, never on distorted user geometry.
+            reference = np.asarray(template.GetParametricCoords()).reshape(-1, 3)
+            a, b, c = reference[list(indices[:3])]
+            normal = np.cross(b - a, c - a)
+            if np.dot(normal, a - reference.mean(axis=0)) < 0:
+                indices = tuple(indices[i] for i in _REVERSE[int(face.type)])
+        faces.append((int(face.type), indices))
     edges = tuple((int(edge.type), tuple(edge.point_ids)) for edge in template.edges)
-    return faces, edges
+    return tuple(faces), edges
 
 
 def _family(source_type: str) -> str:

@@ -89,7 +89,11 @@ parent element, including on internal faces. This does not repair inverted
 or degenerate elements. Linear and quadratic triangles and quadrilaterals
 remain those cell types: quadratic faces keep all six or eight nodes and are
 not silently linearized or triangulated. The reader also accounts for VTK's
-linear-wedge ordering change in version 9.7.
+linear-wedge ordering change in version 9.7. Older VTK quadratic-wedge face
+winding is normalized using the reference cell's coordinates, without altering
+user geometry. Compare the face tables in
+[VTK 9.3.1](https://github.com/Kitware/VTK/blob/v9.3.1/Common/DataModel/vtkQuadraticWedge.cxx)
+and [VTK 9.6.2](https://github.com/Kitware/VTK/blob/v9.6.2/Common/DataModel/vtkQuadraticWedge.cxx).
 
 | INP family / FRD representation | Supported selection |
 | --- | --- |
