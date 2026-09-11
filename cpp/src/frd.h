@@ -73,6 +73,7 @@ class Document {
   const double *points() const { return points_.data(); }
   const int64_t *node_ids() const { return node_ids_.data(); }
   uint64_t n_cells() const { return static_cast<uint64_t>(cell_types_.size()); }
+  const int64_t *cell_ids() const { return cell_ids_.data(); }
   const uint8_t *cell_types() const { return cell_types_.data(); }
   const int64_t *cell_offsets() const { return cell_offsets_.data(); }
   const int64_t *cell_connectivity() const { return connectivity_.data(); }
@@ -113,6 +114,7 @@ class Document {
   std::unordered_map<int64_t, size_t> raw_node_slot_; /* id -> slot, for overwrite */
   std::vector<std::vector<int64_t>> raw_cells_;
   std::vector<uint8_t> raw_cell_types_;
+  std::vector<int64_t> raw_cell_ids_;
 
   /* Decided by the first element-face line and fixed thereafter. On the
    * document, as the reference stores it, so both go stale together. */
@@ -124,6 +126,7 @@ class Document {
   std::vector<double> points_;
   std::unordered_map<int64_t, int64_t> node_index_;
   std::vector<uint8_t> cell_types_;
+  std::vector<int64_t> cell_ids_;
   std::vector<int64_t> cell_offsets_;
   std::vector<int64_t> connectivity_;
 

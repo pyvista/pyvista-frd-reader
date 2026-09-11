@@ -269,6 +269,10 @@ uint64_t pvfrd_n_cells(const pvfrd_file *file) {
   return file == nullptr ? 0 : file->document.n_cells();
 }
 
+const int64_t *pvfrd_cell_ids(const pvfrd_file *file) {
+  return file == nullptr ? nullptr : file->document.cell_ids();
+}
+
 const uint8_t *pvfrd_cell_types(const pvfrd_file *file) {
   return file == nullptr ? nullptr : file->document.cell_types();
 }

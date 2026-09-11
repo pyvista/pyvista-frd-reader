@@ -46,9 +46,10 @@ Versioning
 including an added function, increments this value. Bindings require an exact
 match because they declare all expected symbols when loading the library.
 
-======  =========================
+======  =================================
 ABI     Contents
-======  =========================
+======  =================================
 1       Reading
 2       Reading and writing
-======  =========================
+3       Original element IDs
+======  =================================

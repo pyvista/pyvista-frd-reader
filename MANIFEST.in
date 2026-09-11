@@ -5,6 +5,12 @@ graft tests
 include LICENSE
 include README.rst
 recursive-include doc *.md *.rst *.py
-prune cpp/build
+recursive-include doc/_data *.inp *.inc *.frd
+recursive-include doc/_static *.css *.js *.svg *.tsv *.json.gz
+recursive-include tools *.py
+prune cpp/build*
+prune doc/_build
+prune doc/gallery
+exclude doc/sg_execution_times.rst
 global-exclude *.pyc
 global-exclude __pycache__

@@ -23,6 +23,9 @@ from ._capi import WEDGE_SWAP
 from ._capi import Diagnostic
 from ._capi import DiagnosticKind
 from ._capi import NativeFile
+from .sets import INPSets
+from .sets import read_sets
+from .surfaces import extract_surface
 
 if TYPE_CHECKING:
     from pyvista import UnstructuredGrid
@@ -114,6 +117,18 @@ class FRDReader:
     ----------
     path : str | os.PathLike
         File to read.
+    inp_path : str | os.PathLike, optional
+        Companion input deck. When supplied, add boolean ``NSET:<NAME>``
+        point arrays and ``ELSET:<NAME>`` cell arrays. No deck is loaded
+        automatically. IDs absent from the FRD mesh are omitted from masks.
+        Named surfaces are available through :meth:`read_surface` and
+        :meth:`read_surfaces`; their missing-ID policy is explicit.
+
+    Attributes
+    ----------
+    sets : INPSets
+        Original set/surface memberships and element types from the input deck.
+        Empty when no input deck was supplied.
 
     Warns
     -----
@@ -131,7 +146,10 @@ class FRDReader:
 
     """
 
-    def __init__(self, path: str | os.PathLike[str]) -> None:
+    def __init__(
+        self, path: str | os.PathLike[str], *, inp_path: str | os.PathLike[str] | None = None
+    ) -> None:
+        self.sets = INPSets() if inp_path is None else read_sets(inp_path)
         self.path = os.fspath(path)
         self._file = NativeFile(self.path, wedge_order=_default_wedge_order())
         self._time_steps = self._file.step_times
@@ -241,7 +259,74 @@ class FRDReader:
             for index, (name, _n_components, _kind) in enumerate(self._file.array_infos(step)):
                 grid.point_data[name] = self._file.array(step, index)
 
+        if self.sets.node_sets or self.sets.element_sets or self.sets.surfaces:
+            grid.cell_data['original_element_ids'] = self._file.cell_ids.copy()
+            for name, ids in self.sets.node_sets.items():
+                key = f'NSET:{name}'
+                if key in grid.point_data:
+                    msg = f'Set array {key!r} conflicts with an FRD result array'
+                    raise ValueError(msg)
+                grid.point_data[key] = np.isin(self._file.node_ids, ids)
+            for name, ids in self.sets.element_sets.items():
+                grid.cell_data[f'ELSET:{name}'] = np.isin(self._file.cell_ids, ids)
+
         return grid
+
+    @property
+    def surface_names(self) -> list[str]:
+        """Return uppercase surface names, qualified by kind when names overlap."""
+        return list(self.sets.surfaces)
+
+    def read_surface(self, name: str, *, missing: str = 'raise') -> UnstructuredGrid:
+        """Read a named surface with results from the active time step.
+
+        Parameters
+        ----------
+        name : str
+            Case-insensitive key from :attr:`surface_names`. Shared names use
+            ``NODE:NAME`` or ``ELEMENT:NAME``.
+        missing : str, default: 'raise'
+            Raise for IDs absent from the FRD mesh. With ``'warn'``, report
+            and omit those IDs, recording them in output field data. Invalid
+            or unsupported face mappings always raise.
+
+        Returns
+        -------
+        pyvista.UnstructuredGrid
+            Face/edge elements, or vertices for a nodal surface. Point arrays
+            are copied from the current result step. Element faces retain
+            ``original_element_ids`` and ``surface_face_labels`` as cell data.
+            Quadratic faces retain their midside nodes and VTK cell types.
+
+        Notes
+        -----
+        The companion deck must explicitly define the surface. Extraction
+        includes internal faces and uses original FRD IDs, not array indices.
+        Nodal surfaces are vertices, with no inferred polygon connectivity.
+        No result interpolation, averaging, or deformation is performed.
+        Returned coordinates and result arrays have independent storage.
+
+        """
+        name = name.strip().upper()
+        if name not in self.sets.surfaces:
+            msg = f'Unknown surface {name!r}; available surfaces: {self.surface_names}'
+            raise KeyError(msg)
+        return extract_surface(
+            self.read(), self.sets.surfaces[name], self.sets.element_types, missing=missing
+        )
+
+    def read_surfaces(self, *, missing: str = 'raise') -> pv.MultiBlock:
+        """Read every named surface into a MultiBlock at the active time step.
+
+        ``missing`` has the same meaning as in :meth:`read_surface`.
+        """
+        mesh = self.read()
+        return pv.MultiBlock(
+            {
+                name: extract_surface(mesh, surface, self.sets.element_types, missing=missing)
+                for name, surface in self.sets.surfaces.items()
+            }
+        )
 
 
 class _Cells(pv.CellArray):
@@ -273,7 +358,12 @@ def _cell_array(offsets: np.ndarray, connectivity: np.ndarray) -> pv.CellArray:
     return _Cells(offsets.astype(dtype), connectivity.astype(dtype))
 
 
-def read(path: str | os.PathLike[str], *, time_point: int | None = None) -> UnstructuredGrid:
+def read(
+    path: str | os.PathLike[str],
+    *,
+    time_point: int | None = None,
+    inp_path: str | os.PathLike[str] | None = None,
+) -> UnstructuredGrid:
     """Read an FRD file into a :class:`pyvista.UnstructuredGrid`.
 
     Parameters
@@ -282,6 +372,8 @@ def read(path: str | os.PathLike[str], *, time_point: int | None = None) -> Unst
         File to read.
     time_point : int, optional
         Time step to read. Defaults to the first step.
+    inp_path : str | os.PathLike, optional
+        Companion input deck; see :class:`FRDReader` for set array naming.
 
     Returns
     -------
@@ -294,7 +386,7 @@ def read(path: str | os.PathLike[str], *, time_point: int | None = None) -> Unst
     >>> mesh = pyvista_frd.read('mesh.frd')  # doctest: +SKIP
 
     """
-    reader = FRDReader(path)
+    reader = FRDReader(path, inp_path=inp_path)
     if time_point is not None:
         reader.set_active_time_point(time_point)
     return reader.read()

@@ -385,6 +385,7 @@ bool Document::parse_elements_binary(LineReader &reader, int64_t count, int form
     }
     raw_cells_.push_back(permute(node_ids, code, spec.n_points, options_.wedge_order));
     raw_cell_types_.push_back(spec.vtk_type);
+    raw_cell_ids_.push_back(read_i32_le(head));
   }
   reader.skip_newline();
   return true;
@@ -397,6 +398,7 @@ void Document::parse_elements(LineReader &reader) {
   CellSpec spec{0, 0};
   bool open_element = false;
   int64_t element_line = -1;
+  int64_t element_id = 0;
 
   std::string_view line;
   while (reader.next(&line)) {
@@ -433,6 +435,8 @@ void Document::parse_elements(LineReader &reader) {
         open_element = false;
         continue;
       }
+      element_id = 0;
+      parse_int(parts[0], &element_id);
       code = value;
       needed = spec.n_points;
       node_ids.clear();
@@ -477,6 +481,7 @@ void Document::parse_elements(LineReader &reader) {
 
       raw_cells_.push_back(permute(node_ids, code, needed, options_.wedge_order));
       raw_cell_types_.push_back(spec.vtk_type);
+      raw_cell_ids_.push_back(element_id);
       open_element = false;
       node_ids.clear();
     }
@@ -621,6 +626,7 @@ void Document::build_mesh() {
     for (int64_t id : ids) connectivity_.push_back(node_index_.at(id));
     cell_offsets_.push_back(static_cast<int64_t>(connectivity_.size()));
     cell_types_.push_back(raw_cell_types_[c]);
+    cell_ids_.push_back(raw_cell_ids_[c]);
   }
 
   /* The raw parse products are dead once the mesh exists, and a large file
@@ -629,6 +635,8 @@ void Document::build_mesh() {
   raw_cells_.shrink_to_fit();
   raw_cell_types_.clear();
   raw_cell_types_.shrink_to_fit();
+  raw_cell_ids_.clear();
+  raw_cell_ids_.shrink_to_fit();
   raw_node_xyz_.clear();
   raw_node_xyz_.shrink_to_fit();
   raw_node_ids_.clear();
