@@ -26,6 +26,13 @@ The file `tests/conformance/ref_frd.py` is an unchanged copy of PyVista's
 reader. The conformance tests use it as the reference implementation. Its
 header records the upstream file and commit.
 
+PyVista 0.49 removed its built-in FRD reader. The tests use the installed
+reader when available and the pinned upstream classes in
+`tests/conformance/ref_reader.py` otherwise. Those class bodies are verbatim
+extracts from the same upstream commit as the parser; only their imports
+are adapted. This preserves warning and binary-to-ASCII comparisons without
+depending on the removed API or substituting this package as its own reference.
+
 ## FRD format
 
 [Guido Dhondt and Klaus Wittig](http://www.dhondt.de/) created CalculiX and

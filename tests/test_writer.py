@@ -543,15 +543,18 @@ def test_convert_turns_binary_into_something_an_ascii_reader_can_open(tmp_path):
     """
     pyvista_frd = pytest.importorskip('pyvista_frd')
     pv = pytest.importorskip('pyvista')
+    from tests.conformance.ref_reader import FRDReader as ReferenceFRDReader
+
+    reader_type = getattr(pv, 'FRDReader', ReferenceFRDReader)
 
     source = FIXTURE_DIR / 'generated' / 'binary' / 'hex8_binary.frd'
     target = tmp_path / 'converted.frd'
     pyvista_frd.convert(source, target, binary=False)
 
     with pytest.raises(Exception):  # noqa: B017, PT011 - the oracle's own refusal
-        pv.get_reader(str(source)).read()
+        reader_type(str(source)).read()
 
-    mesh = pv.get_reader(str(target)).read()
+    mesh = reader_type(str(target)).read()
     assert mesh.n_points == 8
     assert mesh.n_cells == 1
 

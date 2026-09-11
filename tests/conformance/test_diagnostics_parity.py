@@ -1,9 +1,9 @@
 """The warnings must match PyVista's, character for character.
 
-Graded against the *installed* PyVista rather than the vendored parser copy,
-because the message assembly lives in PyVista's ``reader.py`` and not in
-``_frd.py`` -- reimplementing it here to compare against would be comparing
-this code with itself.
+Graded against the installed PyVista reader when available, otherwise the
+pinned upstream reader wrappers in ``ref_reader.py``. PyVista 0.49 removed
+its FRD reader. The warning assembly is kept verbatim from upstream so the
+comparison remains independent of this package's warning implementation.
 
 That choice has one consequence, and it is stated rather than worked around:
 the installed PyVista does not know PY5/PY13 yet (pyvista#8936), so for the
@@ -25,6 +25,7 @@ from pyvista_frd import FRDReader
 if TYPE_CHECKING:
     from pathlib import Path
 
+from tests.conformance.ref_reader import FRDReader as ReferenceFRDReader
 from tests.conftest import UNREADABLE
 
 # Element codes this library reads and the installed PyVista may not. A file
@@ -36,7 +37,8 @@ _AHEAD_OF_PYVISTA = {'pyramids.frd', 'PY5.frd', 'PY13.frd'}
 def _pyvista_warnings(path: Path) -> list[str]:
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter('always')
-        pv.FRDReader(str(path))
+        reader_type = getattr(pv, 'FRDReader', ReferenceFRDReader)
+        reader_type(str(path))
     return sorted(str(w.message) for w in caught if issubclass(w.category, InvalidMeshWarning))
 
 
