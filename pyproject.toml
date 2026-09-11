@@ -114,6 +114,7 @@ select = ["ALL"]
 [tool.ruff.lint.per-file-ignores]
 # The vendored oracle is someone else's code, kept byte-identical on purpose.
 "tests/conformance/ref_frd.py" = ["ALL"]
+"tests/conformance/ref_reader.py" = ["ALL"]
 "tests/**" = ["ANN", "D", "INP001", "PLR2004", "SLF001"]
 "tools/**" = ["ANN", "C901", "D103", "PLR0912", "PLR0915", "S603", "S607", "SLF001"]
 # The benchmark drives the reference parser directly, which means reaching

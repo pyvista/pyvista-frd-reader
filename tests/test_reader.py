@@ -263,16 +263,68 @@ def test_coverage_edge_cases():
     mesh = reader.read()
     node_ids = mesh.point_data['original_node_ids']
     # The node whose first coordinate would not parse was skipped.
-    assert '1' not in node_ids
-    assert '2' in node_ids
+    assert 1 not in node_ids
+    assert 2 in node_ids
 
 
-def test_original_node_ids_are_strings(mock_frd: Path):
-    """The reference stores them as strings, and callers compare that way."""
+def test_original_node_ids_are_integers(mock_frd: Path):
     mesh = FRDReader(mock_frd).read()
     ids = mesh.point_data['original_node_ids']
-    assert ids.dtype.kind == 'U'
-    assert list(ids) == [str(i) for i in range(1, 9)]
+    assert ids.dtype == np.int32
+    np.testing.assert_array_equal(ids, np.arange(1, 9))
+
+
+@pytest.mark.parametrize(
+    ('node_ids', 'dtype'),
+    [
+        ([2**31 - 1, 1], np.int32),
+        ([2**31, 1], np.int64),
+        ([9_999_999_999, 1], np.int64),
+        ([-(2**31), 1], np.int32),
+        ([-(2**31) - 1, 1], np.int64),
+    ],
+)
+def test_original_node_id_width(tmp_path, node_ids, dtype):
+    """Choose width from ID values, including both signed boundaries."""
+    path = tmp_path / 'node_ids.frd'
+    path.write_text(
+        '2C\n'
+        + ''.join(f' -1 {nid} {i}.0 0.0 0.0\n' for i, nid in enumerate(node_ids))
+        + ' -3\n9999\n',
+        encoding='ascii',
+    )
+    reader = FRDReader(path)
+    mesh = reader.read()
+    ids = mesh.point_data['original_node_ids']
+    assert ids.dtype == dtype
+    np.testing.assert_array_equal(ids, sorted(node_ids))
+    # Editing metadata must not mutate the native reader, including int64 IDs.
+    ids[0] = 42
+    np.testing.assert_array_equal(reader.read().point_data['original_node_ids'], sorted(node_ids))
+
+
+@pytest.mark.parametrize('first_id', [1, 2**31])
+def test_integer_node_ids_round_trip_and_point_to_cell(tmp_path, first_id):
+    """Exercise the VTK 9.7 crash trigger with both integer widths."""
+    mesh = pv.UnstructuredGrid(
+        [8, 0, 1, 3, 2, 4, 5, 7, 6],
+        [pv.CellType.HEXAHEDRON],
+        pv.ImageData(dimensions=(2, 2, 2)).points,
+    )
+    ids = np.arange(first_id, first_id + mesh.n_points, dtype=np.int64)
+    mesh.point_data['original_node_ids'] = ids
+    mesh.point_data['value'] = np.arange(mesh.n_points, dtype=float)
+    path = tmp_path / 'cube.frd'
+    pyvista_frd.write(path, mesh)
+    loaded = pyvista_frd.read(path)
+    expected_dtype = np.int32 if first_id == 1 else np.int64
+    assert loaded.point_data['original_node_ids'].dtype == expected_dtype
+    np.testing.assert_array_equal(loaded.point_data['original_node_ids'], ids)
+    np.testing.assert_array_equal(loaded.cell_connectivity, mesh.cell_connectivity)
+    np.testing.assert_array_equal(loaded.point_data['value'], mesh.point_data['value'])
+    converted = loaded.point_data_to_cell_data()
+    np.testing.assert_array_equal(converted.cell_data['value'], [3.5])
+    np.testing.assert_array_equal(loaded.point_data['original_node_ids'], ids)
 
 
 def test_read_accepts_a_time_point(mock_frd: Path):

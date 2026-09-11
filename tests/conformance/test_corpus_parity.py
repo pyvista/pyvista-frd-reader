@@ -131,10 +131,9 @@ def test_mesh_matches_reference(fixture_path: Path):
     np.testing.assert_array_equal(native.cell_offsets, grid.offset)
     np.testing.assert_array_equal(native.cell_connectivity, grid.cell_connectivity)
 
-    # The reference stores node ids as strings; the ABI hands out integers and
-    # the Python layer does the rendering. Compare what the grid would hold.
-    expected = np.asarray(grid.point_data['original_node_ids'])
-    np.testing.assert_array_equal(np.array([str(i) for i in native.node_ids]), expected)
+    # The reference uses strings; compare the numbering as integers.
+    expected = np.asarray(grid.point_data['original_node_ids'], dtype=np.int64)
+    np.testing.assert_array_equal(native.node_ids, expected)
 
 
 def test_time_steps_match_reference(fixture_path: Path):

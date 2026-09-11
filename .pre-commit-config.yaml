@@ -7,9 +7,9 @@ repos:
         # The vendored oracle is PyVista's code, kept byte-identical on
         # purpose: the whole value of grading against it is that it is
         # someone else's implementation, unedited.
-        exclude: ^tests/conformance/ref_frd\.py$
+        exclude: ^tests/conformance/ref_(frd|reader)\.py$
       - id: ruff-format
-        exclude: ^tests/conformance/ref_frd\.py$
+        exclude: ^tests/conformance/ref_(frd|reader)\.py$
 
   - repo: https://github.com/pre-commit/mirrors-clang-format
     rev: v19.1.5

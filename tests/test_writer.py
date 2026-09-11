@@ -498,7 +498,7 @@ def test_write_then_read_returns_the_same_mesh(tmp_path, kwargs, label, bound):
 
 
 def test_write_keeps_the_files_own_node_numbering(tmp_path):
-    """Node ids are a numbering, not an array of stringified integers.
+    """Preserve node IDs in node records when writing a loaded mesh.
 
     A mesh this library read carries the file's numbering in
     `original_node_ids`, and the fixtures do not number from one -- tri3
@@ -508,7 +508,7 @@ def test_write_keeps_the_files_own_node_numbering(tmp_path):
     pyvista_frd = pytest.importorskip('pyvista_frd')
     mesh = pyvista_frd.read(FIXTURE_DIR / 'generated' / 'tri3.frd')
     original = np.asarray(mesh.point_data['original_node_ids'])
-    assert original[0] != '1', 'this fixture numbers from one, so it grades nothing'
+    assert original[0] != 1, 'this fixture numbers from one, so it grades nothing'
 
     target = tmp_path / 'renumbered.frd'
     pyvista_frd.write(target, mesh)
@@ -543,15 +543,18 @@ def test_convert_turns_binary_into_something_an_ascii_reader_can_open(tmp_path):
     """
     pyvista_frd = pytest.importorskip('pyvista_frd')
     pv = pytest.importorskip('pyvista')
+    from tests.conformance.ref_reader import FRDReader as ReferenceFRDReader
+
+    reader_type = getattr(pv, 'FRDReader', ReferenceFRDReader)
 
     source = FIXTURE_DIR / 'generated' / 'binary' / 'hex8_binary.frd'
     target = tmp_path / 'converted.frd'
     pyvista_frd.convert(source, target, binary=False)
 
     with pytest.raises(Exception):  # noqa: B017, PT011 - the oracle's own refusal
-        pv.get_reader(str(source)).read()
+        reader_type(str(source)).read()
 
-    mesh = pv.get_reader(str(target)).read()
+    mesh = reader_type(str(target)).read()
     assert mesh.n_points == 8
     assert mesh.n_cells == 1
 

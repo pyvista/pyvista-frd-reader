@@ -182,7 +182,7 @@ def test_nodal_surface_and_missing_ids(tmp_path):
         reader.read_surface('N')
     with pytest.warns(UserWarning, match='absent'):
         cloud = reader.read_surface('N', missing='warn')
-    assert cloud['original_node_ids'].tolist() == ['1', '3']
+    assert cloud['original_node_ids'].tolist() == [1, 3]
     assert cloud.celltypes.tolist() == [pv.CellType.VERTEX] * 2
     assert cloud.field_data['missing_node_ids'].tolist() == [999]
     assert 'DISP' in cloud.point_data
