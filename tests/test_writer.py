@@ -498,7 +498,7 @@ def test_write_then_read_returns_the_same_mesh(tmp_path, kwargs, label, bound):
 
 
 def test_write_keeps_the_files_own_node_numbering(tmp_path):
-    """Node ids are a numbering, not an array of stringified integers.
+    """Preserve node IDs in node records when writing a loaded mesh.
 
     A mesh this library read carries the file's numbering in
     `original_node_ids`, and the fixtures do not number from one -- tri3
@@ -508,7 +508,7 @@ def test_write_keeps_the_files_own_node_numbering(tmp_path):
     pyvista_frd = pytest.importorskip('pyvista_frd')
     mesh = pyvista_frd.read(FIXTURE_DIR / 'generated' / 'tri3.frd')
     original = np.asarray(mesh.point_data['original_node_ids'])
-    assert original[0] != '1', 'this fixture numbers from one, so it grades nothing'
+    assert original[0] != 1, 'this fixture numbers from one, so it grades nothing'
 
     target = tmp_path / 'renumbered.frd'
     pyvista_frd.write(target, mesh)

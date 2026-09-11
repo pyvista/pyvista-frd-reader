@@ -34,6 +34,20 @@ Pinned by
 
 ## Behavioral differences
 
+### Original node IDs are integers
+
+`original_node_ids` uses `int32` when all IDs lie between -2,147,483,648 and
+2,147,483,647 inclusive, and `int64` otherwise. The original reference reader
+and earlier versions of this package returned strings. Compare IDs against
+integers instead of strings. Node numbering and point order are preserved.
+
+Integer storage also avoids the VTK 9.7.0 string-array crash when calling
+`point_data_to_cell_data()` on a mesh returned by this reader. The underlying
+VTK issue can still affect user-added string arrays.
+
+Pinned by `test_original_node_ids_are_integers`, `test_original_node_id_width`,
+and `test_integer_node_ids_round_trip_and_point_to_cell` in `tests/test_reader.py`.
+
 ### Integers are limited to ASCII and int64
 
 PyVista uses Python's `int()`, which accepts Unicode digits and arbitrary-size

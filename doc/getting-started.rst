@@ -32,6 +32,18 @@ results are stored as point data under their CalculiX names. Six-component
 ``STRESS`` and ``STRAIN`` arrays also produce ``_Mises``, ``_sgMises``, and
 ``_PS1`` through ``_PS3`` arrays.
 
+``mesh.point_data["original_node_ids"]`` stores the original FRD node numbers
+as integers: ``int32`` when every ID fits in the signed 32-bit range,
+otherwise ``int64``. The width depends on the ID values, not the number of
+points. Compare IDs numerically, for example
+``mesh.point_data["original_node_ids"] == 42``. Earlier versions returned
+strings and required comparisons against ``"42"``.
+
+``mesh.point_data_to_cell_data()`` can average the numeric nodal results
+directly. Any averaged node-ID array is metadata with no physical meaning;
+it does not identify the element. This filter averages existing nodal values
+and does not recover element integration-point results.
+
 For a file with more than one step, use the reader object:
 
 .. code-block:: python

@@ -33,6 +33,7 @@ __all__ = ['ELEMENT_TYPE_NAMES', 'FRDReader', 'convert', 'read', 'write']
 ORIGINAL_NODE_IDS = 'original_node_ids'
 
 _INT32_MAX = 2**31 - 1
+_INT32_MIN = -(2**31)
 
 # A result record is one node and its components, so an array is at most
 # two-dimensional: nodes by components.
@@ -215,7 +216,8 @@ class FRDReader:
         -------
         pyvista.UnstructuredGrid
             Mesh with ``original_node_ids`` and every array of the active
-            step attached as point data.
+            step attached as point data. Node IDs use ``int32`` when all
+            values fit, otherwise ``int64``.
 
         """
         n_points = self._file.n_points
@@ -232,9 +234,11 @@ class FRDReader:
         grid.points = np.array(points, dtype=np.float64)
         grid.SetCells(convert_array(celltypes, deep=True), _cell_array(offsets, connectivity))
 
-        # Strings, not integers: the reference stores them this way and code
-        # in the wild compares against `str(node_id)`.
-        grid.point_data['original_node_ids'] = np.array([str(nid) for nid in self._file.node_ids])
+        node_ids = self._file.node_ids
+        dtype = (
+            np.int32 if node_ids.min() >= _INT32_MIN and node_ids.max() <= _INT32_MAX else np.int64
+        )
+        grid.point_data[ORIGINAL_NODE_IDS] = np.array(node_ids, dtype=dtype)
 
         if self._time_steps:
             step = self._active_time_point
@@ -352,11 +356,7 @@ def write(  # noqa: PLR0913 - each argument is one documented knob of the format
     celltypes, offsets, connectivity = _grid_cells(mesh)
     points = np.asarray(mesh.points, dtype=np.float64)
 
-    # A mesh this library read carries the file's own node numbering in
-    # `original_node_ids` -- as strings, because that is what the reference
-    # reader produces and this one matches it. Those are node *numbers*, so
-    # they go back into the node records they came from rather than being
-    # written out again as a result array of stringified integers.
+    # Preserve the original numbering in node records, not as a result array.
     node_ids = None
     arrays = list(mesh.point_data)
     if ORIGINAL_NODE_IDS in mesh.point_data:
