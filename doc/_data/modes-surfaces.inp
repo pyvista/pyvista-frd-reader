@@ -1,0 +1,4 @@
+** Companion metadata for modes.frd. No solver run is needed.
+** Includes resolve relative to this file's directory.
+*INCLUDE, INPUT=src/modes.inp
+*INCLUDE, INPUT=surface-definitions.inc

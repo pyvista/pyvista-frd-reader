@@ -1,7 +1,8 @@
-"""Read set membership from CalculiX input decks, without solving the model."""
+"""Read sets and named surfaces from CalculiX decks, without solving the model."""
 
 from __future__ import annotations
 
+from collections import Counter
 from dataclasses import dataclass
 from dataclasses import field
 from pathlib import Path
@@ -19,18 +20,48 @@ _COMMA = re.compile(r',(?=(?:[^\"]*\"[^\"]*\")*[^\"]*$)')
 _MAX_ID = np.iinfo(np.int64).max
 
 
+@dataclass(frozen=True)
+class INPSurface:
+    """A named surface's original IDs, independent of an FRD output mesh.
+
+    ``kind`` is ``'NODE'`` or ``'ELEMENT'``. Nodal surfaces hold ``node_ids``;
+    element surfaces hold ``(element_id, face_label)`` pairs in
+    ``element_faces``. Membership is deduplicated and sorted. Face labels use
+    CalculiX input numbering, not VTK face indices.
+    """
+
+    kind: str
+    node_ids: tuple[int, ...] = ()
+    element_faces: tuple[tuple[int, str], ...] = ()
+
+
+@dataclass
+class _SurfaceBuilder:
+    kind: str
+    nodes: set[int] = field(default_factory=set)
+    faces: set[tuple[int, str]] = field(default_factory=set)
+
+
 @dataclass
 class INPSets:
-    """Original IDs belonging to the node and element sets in an input deck.
+    """Original set and surface membership from an input deck.
 
     Names are normalized to uppercase. Arrays contain sorted, unique int64
     IDs, including IDs absent from an FRD output mesh. Node and element sets
     have separate namespaces. Ordering such as ``UNSORTED`` is not preserved:
     these sets describe membership, not constraint or equation ordering.
+
+    ``surfaces`` maps uppercase names to :class:`INPSurface` definitions.
+    When NODE and ELEMENT surfaces share a name, their keys are qualified as
+    ``NODE:NAME`` and ``ELEMENT:NAME``. ``element_types`` maps original element
+    IDs to uppercase ``*ELEMENT, TYPE=...`` declarations, including elements
+    without an ELSET; these distinguish shell, plane, beam, and solid faces.
     """
 
     node_sets: dict[str, np.ndarray] = field(default_factory=dict)
     element_sets: dict[str, np.ndarray] = field(default_factory=dict)
+    surfaces: dict[str, INPSurface] = field(default_factory=dict)
+    element_types: dict[int, str] = field(default_factory=dict)
 
 
 def _fields(line: str) -> list[str]:
@@ -200,8 +231,71 @@ def _element_size(element_type: str) -> int | None:
     }.get(element_type.upper())
 
 
+def _surface_header(
+    options: dict[str, str], surfaces: dict[tuple[str, str], _SurfaceBuilder]
+) -> _SurfaceBuilder:
+    name = _name(options.get('NAME', ''))
+    kind = options.get('TYPE', 'ELEMENT').upper()
+    if not name:
+        msg = '*SURFACE requires NAME'
+        raise ValueError(msg)
+    if kind not in {'NODE', 'ELEMENT'}:
+        msg = f'unsupported *SURFACE TYPE={kind}'
+        raise ValueError(msg)
+    if options.keys() - {'NAME', 'TYPE'}:
+        msg = f'unsupported *SURFACE parameters: {sorted(options.keys() - {"NAME", "TYPE"})}'
+        raise ValueError(msg)
+    return surfaces.setdefault((name, kind), _SurfaceBuilder(kind))
+
+
+def _surface_members(
+    surface: _SurfaceBuilder,
+    fields: list[str],
+    nodes: dict[str, set[int]],
+    elements: dict[str, set[int]],
+) -> None:
+    expected = 1 if surface.kind == 'NODE' else 2
+    if len(fields) != expected:
+        msg = (
+            '*SURFACE requires a node/set'
+            if expected == 1
+            else '*SURFACE requires element/set, face label'
+        )
+        raise ValueError(msg)
+    if surface.kind == 'NODE':
+        surface.nodes.update(_members(fields, nodes, generate=False))
+    else:
+        face = fields[1].upper()
+        if not re.fullmatch(r'S(?:[1-6]|NEG|POS|N|P)', face):
+            msg = f'unsupported surface face label {face!r}'
+            raise ValueError(msg)
+        surface.faces.update((eid, face) for eid in _members(fields[:1], elements, generate=False))
+
+
+def _register_id(
+    value: str, target: set[int] | None, types: dict[int, str], source_type: str
+) -> None:
+    identifier = _identifier(value)
+    if target is not None:
+        target.add(identifier)
+    if source_type:
+        types[identifier] = source_type.upper()
+
+
+def _finish_surfaces(surfaces: dict[tuple[str, str], _SurfaceBuilder]) -> dict[str, INPSurface]:
+    counts = Counter(name for name, _ in surfaces)
+    result = {}
+    for (name, kind), value in surfaces.items():
+        key = name if counts[name] == 1 else f'{kind}:{name}'
+        if key in result:
+            msg = f'Surface name {key!r} collides with a qualified surface name'
+            raise ValueError(msg)
+        result[key] = INPSurface(kind, tuple(sorted(value.nodes)), tuple(sorted(value.faces)))
+    return result
+
+
 def read_sets(path: str | os.PathLike[str]) -> INPSets:
-    """Read node and element set membership from a CalculiX ``.inp`` file.
+    """Read sets and named surfaces from a CalculiX ``.inp`` file.
 
     Parameters
     ----------
@@ -212,12 +306,12 @@ def read_sets(path: str | os.PathLike[str]) -> INPSets:
     Returns
     -------
     INPSets
-        Sets expressed as original node and element IDs, not mesh indices.
+        Sets, surfaces, and element types expressed using original IDs.
 
     Raises
     ------
     ValueError
-        Invalid set syntax, an undefined reference, an include cycle, or
+        Invalid set or surface syntax, an undefined reference, an include cycle, or
         unsupported assembly or set-generation syntax.
     OSError
         The deck or an included file cannot be opened.
@@ -227,7 +321,8 @@ def read_sets(path: str | os.PathLike[str]) -> INPSets:
     Supports ``*NSET``, ``*ELSET``, ``GENERATE``, references to earlier sets,
     repeated definitions, ``*NODE, NSET=...``, ``*ELEMENT, ELSET=...``, and
     nested ``*INCLUDE``. References copy membership at the point of use.
-    Other analysis keywords are ignored. Surfaces, Abaqus part/instance
+    Also reads NODE and ELEMENT ``*SURFACE`` definitions.
+    Other analysis keywords are ignored. Abaqus part/instance
     namespaces, and sets created by mesh-generation keywords are unsupported.
 
     Examples
@@ -240,6 +335,9 @@ def read_sets(path: str | os.PathLike[str]) -> INPSets:
     path = Path(path)
     nodes: dict[str, set[int]] = {}
     elements: dict[str, set[int]] = {}
+    surfaces: dict[tuple[str, str], _SurfaceBuilder] = {}
+    element_types: dict[int, str] = {}
+    surface = None
     keyword = ''
     options: dict[str, str] = {}
     target = None
@@ -253,11 +351,14 @@ def read_sets(path: str | os.PathLike[str]) -> INPSets:
                 continued_element = False
                 remaining = 0
                 target, sets = _select_set(keyword, options, nodes, elements)
-            elif target is not None:
+                surface = _surface_header(options, surfaces) if keyword == '*SURFACE' else None
+            elif target is not None or surface is not None or keyword == '*ELEMENT':
                 fields = [value for value in _fields(line) if value]
-                if keyword in {'*NODE', '*ELEMENT'}:
+                if surface is not None:
+                    _surface_members(surface, fields, nodes, elements)
+                elif keyword in {'*NODE', '*ELEMENT'}:
                     if not continued_element:
-                        target.add(_identifier(fields[0]))
+                        _register_id(fields[0], target, element_types, options.get('TYPE', ''))
                     if keyword == '*ELEMENT':
                         size = _element_size(options.get('TYPE', ''))
                         if size is None:
@@ -273,4 +374,6 @@ def read_sets(path: str | os.PathLike[str]) -> INPSets:
     return INPSets(
         {name: np.array(sorted(ids), dtype=np.int64) for name, ids in nodes.items()},
         {name: np.array(sorted(ids), dtype=np.int64) for name, ids in elements.items()},
+        _finish_surfaces(surfaces),
+        element_types,
     )

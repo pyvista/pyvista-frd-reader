@@ -20,7 +20,7 @@ are separate. Masks are attached to every time step. An FRD result array
 colliding with a set array name raises `ValueError` instead of being overwritten.
 Calls without `inp_path` retain the existing output and never open a nearby deck.
 
-When sets are present, `original_element_ids` contains integer FRD element IDs
+When sets or surfaces are present, `original_element_ids` contains integer FRD element IDs
 in returned cell order. `original_node_ids` retains its existing string format.
 Mapping uses the original IDs, including when they are sparse, out of order,
 or belong to elements skipped by the FRD reader. It never assumes ID minus one
@@ -57,9 +57,9 @@ as the CalculiX job directory. Included content is inserted at the directive's
 position, including inside a data block. Missing files and include cycles are
 reported. Syntax errors identify the source file and line.
 
-This API describes membership, not input-deck ordering: `UNSORTED` does not
-preserve equation/constraint ordering. It does not evaluate a model. Surfaces
-and their element-face mappings are not imported. Part/assembly/instance
+This API also imports [named surfaces](surfaces.md), including element-face
+mappings. It describes membership, not input-deck ordering: `UNSORTED` does not
+preserve equation/constraint ordering. It does not evaluate a model. Part/assembly/instance
 namespaces, `*NSET, ELSET=...`, parameter substitution, and sets created by
 mesh-generation keywords such as `*NGEN` are unsupported. Other analysis
 keywords are ignored. The FRD writer does not export an INP deck or preserve
@@ -69,6 +69,10 @@ Syntax and connectivity counts follow the `*NODE`, `*ELEMENT`, `*NSET`,
 `*ELSET`, and `*INCLUDE` entries in the
 [CalculiX 2.23 manual](https://www.dhondt.de/ccx_2.23.pdf)
 ([HTML archive](https://www.dhondt.de/ccx_2.23.htm.tar.bz2)).
+
+For surface support, expanded public-corpus results, and reproducible galleries,
+see [Named surfaces](surfaces.md). The set-specific baseline below predates that
+expanded search.
 
 ## Reproducing the external checks
 

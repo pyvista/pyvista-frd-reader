@@ -20,6 +20,11 @@ import urllib.parse
 import urllib.request
 
 SOURCES = [
+    ('calculix/gmsh2ccx', '50f9c32283a02a6205e7e6acda7824de8a34b09a', ''),
+    ('cristobaltapia/pybaqus', '0bb362856910855ee4e6fc997b1dfc1153020e18', ''),
+    ('gbroques/ccxmeshreader', '1ba48c3c6404849962301cf0aca5c76ff45536dc', ''),
+    ('precice/tutorials', 'fb266dd9b8bc9caad940921fa43236c600ed9e7e', ''),
+    ('precice/community-training', '4238040aa73315e5fe31554b81c71e03fea21230', ''),
     ('calculix/examples', 'a079253398c05f96b019e8c07ce076e370ddeb75', ''),
     ('calculix/CalculiX-Examples', '316273e9105e44ce7e3ee05059dac1bc3f256a69', ''),
     ('FreeCAD/FreeCAD', '0919323548ddab8d6d8607f02ee5da7faa234fc5', 'src/Mod/Fem/femtest/'),

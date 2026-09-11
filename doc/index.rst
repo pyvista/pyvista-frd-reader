@@ -55,6 +55,12 @@ encodings, writes long ASCII and binary FRD, and converts record encodings.
       Read short ASCII, long ASCII, binary ``float32``, and binary ``float64``
       records. Preserve or convert their encodings.
 
+   .. grid-item-card:: Sets and named surfaces
+      :link: surfaces
+      :link-type: doc
+
+      Import set masks and plot named faces with their current-step results.
+
    .. grid-item-card:: FRD writer
 
       Write PyVista meshes to FRD or convert an existing file without building
@@ -84,6 +90,7 @@ encodings, writes long ASCII and binary FRD, and converts record encodings.
    api/index
    writing
    sets
+   surfaces
    binary
 
 .. toctree::

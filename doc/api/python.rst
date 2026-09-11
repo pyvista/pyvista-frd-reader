@@ -14,12 +14,15 @@ Reading
    :members:
    :inherited-members:
 
-Input-deck sets
----------------
+Input-deck sets and surfaces
+----------------------------
 
 .. autofunction:: read_sets
 
 .. autoclass:: INPSets
+   :members:
+
+.. autoclass:: INPSurface
    :members:
 
 Writing

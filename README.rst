@@ -53,7 +53,26 @@ Supply a companion input deck to attach boolean set masks to the result:
 ``pyvista_frd.read_sets("model.inp")`` returns the original set IDs without
 an FRD file. Includes, generated ranges, and references to earlier sets are
 supported. See `Node and element sets <https://frd-reader.pyvista.org/sets.html>`_
-for naming, missing-ID behavior, and limitations. Surfaces are not imported.
+for naming, missing-ID behavior, and limitations.
+
+Named surfaces
+--------------
+
+Extract faces using the companion deck's ``*SURFACE`` definitions, with all
+nodal results from the active step:
+
+.. code:: python
+
+   reader = pyvista_frd.FRDReader("model.frd", inp_path="model.inp")
+   wall = reader.read_surface("WALL")
+   wall.plot(scalars="STRESS_Mises")
+   surfaces = reader.read_surfaces()  # named MultiBlock
+
+Solid faces retain quadratic midside nodes. Shell sides, planar edges,
+expanded beam/shell faces, internal faces, and nodal surfaces are supported.
+See `Named surfaces <https://frd-reader.pyvista.org/surfaces.html>`_ for face
+numbering, missing-ID handling, dataset validation, and two runnable galleries
+with all required result files and companion decks included in the source.
 
 Write and convert files
 -----------------------
