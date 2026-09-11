@@ -24,8 +24,9 @@ repos:
     rev: v2.3.0
     hooks:
       - id: codespell
-        exclude: ^(cpp/third_party/|tests/fixtures/|doc/_data/|tests/conformance/ref_frd\.py)
-        args: ["--ignore-words-list=vertexes,nd,ot,unparseable"]
+        # Preserve literal upstream paths and URLs in the corpus inventories.
+        exclude: ^(cpp/third_party/|tests/fixtures/|doc/_data/|doc/_static/(frd-github-provenance|inp-rejections|surface-rejections)\.tsv$|tests/conformance/ref_frd\.py)
+        args: ["--ignore-words-list=vertexes,nd,ot,unparseable,precice"]
 
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v5.0.0

@@ -68,7 +68,7 @@ def _gh(*args: str) -> str:
     ).stdout
 
 
-def fetch_github(out: Path) -> list[tuple[str, str, str]]:
+def fetch_github(out: Path, query: str = 'extension:frd') -> list[tuple[str, str, str]]:
     """Download every .frd GitHub's code search will admit to having."""
     out.mkdir(parents=True, exist_ok=True)
     hits: dict[tuple[str, str], str] = {}
@@ -80,7 +80,7 @@ def fetch_github(out: Path) -> list[tuple[str, str, str]]:
                 'GET',
                 'search/code',
                 '-f',
-                'q=extension:frd',
+                f'q={query}',
                 '-f',
                 'per_page=100',
                 '-f',
@@ -281,6 +281,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--source', choices=['github', 'calculix'], required=True)
     parser.add_argument('--out', type=Path, default=Path('external-corpus'))
+    parser.add_argument('--query', default='extension:frd', help='GitHub code search query')
     parser.add_argument('--ccx', default='ccx', help='CalculiX executable (--source calculix)')
     parser.add_argument('--jobs', type=int, default=max(1, (os.cpu_count() or 2) - 1))
     parser.add_argument('--timeout', type=int, default=DECK_TIMEOUT_S)
@@ -295,7 +296,7 @@ def main() -> int:
             return 2
         provenance = fetch_calculix(args.out / 'calculix', args.ccx, args.jobs, args.timeout)
     else:
-        provenance = fetch_github(args.out / 'github')
+        provenance = fetch_github(args.out / 'github', args.query)
     record = args.out / 'provenance.tsv'
     with record.open('a') as handle:
         for name, url, sha in provenance:

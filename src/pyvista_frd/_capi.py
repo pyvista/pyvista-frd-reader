@@ -53,7 +53,7 @@ __all__ = [
     'library_path',
 ]
 
-ABI_VERSION = 2
+ABI_VERSION = 3
 """ABI this binding speaks. A library reporting anything else is refused."""
 
 WEDGE_ASIS = 0
@@ -256,6 +256,9 @@ def _bind(lib: ctypes.CDLL) -> None:
 
     lib.pvfrd_n_cells.restype = c_uint64
     lib.pvfrd_n_cells.argtypes = [c_void_p]
+
+    lib.pvfrd_cell_ids.restype = POINTER(c_int64)
+    lib.pvfrd_cell_ids.argtypes = [c_void_p]
 
     lib.pvfrd_cell_types.restype = POINTER(c_uint8)
     lib.pvfrd_cell_types.argtypes = [c_void_p]
@@ -575,6 +578,12 @@ class NativeFile:
     @property
     def n_cells(self) -> int:
         return int(_lib.pvfrd_n_cells(self._require_open()))
+
+    @property
+    def cell_ids(self) -> NDArray[np.int64]:
+        """Return original element IDs in mesh cell order; skipped cells are absent."""
+        n = self.n_cells
+        return _as_array(_lib.pvfrd_cell_ids(self._require_open()), (n,), np.int64)
 
     @property
     def cell_types(self) -> NDArray[np.uint8]:
