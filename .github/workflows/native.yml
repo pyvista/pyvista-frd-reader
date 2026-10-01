@@ -361,7 +361,7 @@ jobs:
         # build-system.requires can override, because a constraint outranks a
         # requirement. The wheel jobs failed with ResolutionImpossible until
         # this moved. 2.23.3 onward pin packaging 25.
-        uses: pypa/cibuildwheel@v4.2.0
+        uses: pypa/cibuildwheel@v4.2.1
         env:
           # One wheel per platform, not one per interpreter: the bundled
           # library is loaded through ctypes and carries no CPython ABI, and
