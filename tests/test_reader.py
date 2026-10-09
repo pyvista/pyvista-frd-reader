@@ -274,6 +274,19 @@ def test_original_node_ids_are_integers(mock_frd: Path):
     np.testing.assert_array_equal(ids, np.arange(1, 9))
 
 
+
+def test_first_result_array_is_active(mock_frd: Path):
+    mesh = FRDReader(mock_frd).read()
+    assert mesh.point_data.active_scalars_name == 'STRESS'
+
+
+def test_node_ids_are_never_active(tmp_path):
+    path = tmp_path / 'nodes.frd'
+    path.write_text('2C\n -1 1 0.0 0.0 0.0\n -3\n9999\n', encoding='ascii')
+    mesh = FRDReader(path).read()
+    assert list(mesh.point_data) == ['original_node_ids']
+    assert mesh.point_data.active_scalars_name is None
+
 @pytest.mark.parametrize(
     ('node_ids', 'dtype'),
     [

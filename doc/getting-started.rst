@@ -39,6 +39,10 @@ points. Compare IDs numerically, for example
 ``mesh.point_data["original_node_ids"] == 42``. Earlier versions returned
 strings and required comparisons against ``"42"``.
 
+The first result array is the active scalars. ``original_node_ids``,
+``original_element_ids`` and set arrays are never active, so a file without
+results has no active scalars.
+
 ``mesh.point_data_to_cell_data()`` can average the numeric nodal results
 directly. Any averaged node-ID array is metadata with no physical meaning;
 it does not identify the element. This filter averages existing nodal values
