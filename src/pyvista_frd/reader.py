@@ -256,7 +256,7 @@ class FRDReader:
         dtype = (
             np.int32 if node_ids.min() >= _INT32_MIN and node_ids.max() <= _INT32_MAX else np.int64
         )
-        grid.point_data[ORIGINAL_NODE_IDS] = np.array(node_ids, dtype=dtype)
+        grid.point_data.set_array(np.array(node_ids, dtype=dtype), ORIGINAL_NODE_IDS)
 
         if self._time_steps:
             step = self._active_time_point
@@ -264,15 +264,15 @@ class FRDReader:
                 grid.point_data[name] = self._file.array(step, index)
 
         if self.sets.node_sets or self.sets.element_sets or self.sets.surfaces:
-            grid.cell_data['original_element_ids'] = self._file.cell_ids.copy()
+            grid.cell_data.set_array(self._file.cell_ids.copy(), 'original_element_ids')
             for name, ids in self.sets.node_sets.items():
                 key = f'NSET:{name}'
                 if key in grid.point_data:
                     msg = f'Set array {key!r} conflicts with an FRD result array'
                     raise ValueError(msg)
-                grid.point_data[key] = np.isin(self._file.node_ids, ids)
+                grid.point_data.set_array(np.isin(self._file.node_ids, ids), key)
             for name, ids in self.sets.element_sets.items():
-                grid.cell_data[f'ELSET:{name}'] = np.isin(self._file.cell_ids, ids)
+                grid.cell_data.set_array(np.isin(self._file.cell_ids, ids), f'ELSET:{name}')
 
         return grid
 
