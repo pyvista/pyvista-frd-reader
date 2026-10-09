@@ -196,7 +196,6 @@ def test_original_ids_and_masks_across_encodings_and_steps(tmp_path, fmt):
     assert pyvista_frd.read(path, inp_path=inp, time_point=1).n_cells == 2
 
 
-
 def test_set_and_id_arrays_are_never_active(tmp_path):
     path = tmp_path / 'model.frd'
     with _capi.Writer(_capi.FORMAT_SHORT_ASCII) as writer:
@@ -208,6 +207,7 @@ def test_set_and_id_arrays_are_never_active(tmp_path):
     assert set(mesh.cell_data) == {'original_element_ids', 'ELSET:B'}
     assert mesh.point_data.active_scalars_name is None
     assert mesh.cell_data.active_scalars_name is None
+
 
 def test_skipped_cells_do_not_shift_element_membership(tmp_path):
     inp = deck(tmp_path, '*ELSET,ELSET=Kept\n8\n*ELSET,ELSET=Skipped\n4,5,6,7\n')
